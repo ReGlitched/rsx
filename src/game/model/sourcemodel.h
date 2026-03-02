@@ -5,7 +5,7 @@ class CSourceModelSource : public CAssetContainer
 {
 public:
     CSourceModelSource() {};
-    ~CSourceModelSource() = default;
+	~CSourceModelSource() = default;
 
     const CAsset::ContainerType GetContainerType() const
     {
@@ -13,12 +13,9 @@ public:
     }
 
     void SetFileName(const char* fileName) { m_fileName = fileName; }
-	void SetFilePath(const std::filesystem::path& path) { m_filePath = path; }
     const char* const GetFileName() const { return m_fileName; }
-	const std::filesystem::path& GetFilePath() const { return m_filePath; }
 
 private:
-	std::filesystem::path m_filePath;
     const char* m_fileName;
 };
 
@@ -145,13 +142,13 @@ public:
 
 	inline const void* GetSequenceData() const { return m_assetSequenceData; }
 	inline const uint64_t GetAssetGUID() const { return m_assetGuid; }
-	inline seqdesc_t* const GetSequence() const { return m_sequence; }
+	inline ModelSeq_t* const GetSequence() const { return m_sequence; }
 	inline const std::vector<ModelBone_t>* GetRig() { return m_rig; }
 	inline const uint64_t GetRigGUID() const { return m_rigGuid; }
 
 	inline void SetAssetSequenceData(const void* data) { m_assetSequenceData = data; }
 	inline void SetAssetGUID(const uint64_t guid) { m_assetGuid = guid; }
-	inline void SetSequence(seqdesc_t* const seqdesc) { m_sequence = seqdesc; }
+	inline void SetSequence(ModelSeq_t* const seqdesc) { m_sequence = seqdesc; }
 	inline void SetRig(const std::vector<ModelBone_t>* rig) { m_rig = rig; }
 
 	// anim data
@@ -162,7 +159,7 @@ private:
 	const void* m_assetSequenceData;
 
 	uint64_t m_assetGuid;
-	seqdesc_t* m_sequence;
+	ModelSeq_t* m_sequence;
 	bool m_animationParsed;
 
 	const std::vector<ModelBone_t>* m_rig;

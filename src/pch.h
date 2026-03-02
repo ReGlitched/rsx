@@ -1,4 +1,9 @@
 #pragma once
+
+//#define _CRTDBG_MAP_ALLOC
+//#include <stdlib.h>
+//#include <crtdbg.h>
+
 #include <tchar.h>
 #include <assert.h>
 #include <cstdint>
@@ -19,12 +24,15 @@
 #include <functional>
 #include <ranges>
 #include <mutex>
+#include <variant>
 
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <Windows.h>
 #include <io.h>
+
+#include <core/features.h>
 
 #include <core/utils/crc32.h>
 #include <core/utils/utils_general.h>
@@ -112,4 +120,3 @@
 //#define XB_XECRPYT
 //#define XB_XCOMPRESS
 #define SWITCH_SWIZZLE
-//#define ADVANCED_MODEL_PREVIEW

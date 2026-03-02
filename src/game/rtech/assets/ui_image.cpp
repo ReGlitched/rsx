@@ -36,11 +36,8 @@ void LoadUIImageAsset(CAssetContainer* const pak, CAsset* const asset)
 
         pakAsset->SetAssetName(name, true);
     }
-    //else
-    //{
-    //    // first give a base name and then try and fetch from the cache if possible
-    //    pakAsset->SetAssetName(std::format("ui_image/0x{:X}.rpak", pakAsset->data()->guid));
-    //}
+    else
+        pakAsset->SetAssetNameFromCache();
 
     // uiia can't be in opt starpak, LoadUIIAAsset calls this to get the streamedOffset // hdr->streamedOffset = *a4 >> 12, a4 is an array which consists of starpak, opstarpak.
     assertm(pakAsset->getStarPakStreamEntry(true).offset == 0u, "Opt starpak entry for uiia??");
@@ -214,21 +211,6 @@ void LoadUIImageAsset(CAssetContainer* const pak, CAsset* const asset)
     pakAsset->setExtraData(uiAsset);
 }
 
-void PostLoadUIImageAsset(CAssetContainer* container, CAsset* asset)
-{
-    UNUSED(container);
-
-    CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
-
-    assertm(pakAsset->extraData(), "extra data should be valid");
-    UIImageAsset* const uiAsset = reinterpret_cast<UIImageAsset*>(pakAsset->extraData());
-
-    if (!uiAsset->name)
-    {
-        pakAsset->SetAssetNameFromCache();
-    }
-}
-
 // Or swizzle work..
 std::unique_ptr<CTexture> DoTilingWork(std::unique_ptr<CTexture> texture, std::unique_ptr<char[]> const& buf, const size_t bufSize, const uint32_t widthBlocks, const uint32_t heightBlocks, const uint32_t bpp2x)
 {    
@@ -285,7 +267,7 @@ std::unique_ptr<CTexture> DoTilingWork(std::unique_ptr<CTexture> texture, std::u
 
 std::unique_ptr<CTexture> CreateBC1TextureForUIImageAsset(CPakAsset* const asset, UIImageAsset* const uiAsset, const UIImageAsset::QualityData* const resData, const bool isStreamed, const bool doTiling)
 {
-    assertm(resData->numBc1Tiles > 0, "called CreateBC1Texture with no BC1 tiles.");
+    assertm(resData->numBc1Tiles > 0, "CreateBC1Texture called with no BC1 tile data");
 
     const size_t bc1BufSize = static_cast<size_t>(resData->totalTiles * BC1_TILE_SIZE);
     std::unique_ptr<char[]> bc1Buf = std::make_unique<char[]>(bc1BufSize);
@@ -400,7 +382,7 @@ std::unique_ptr<CTexture> CreateBC7TextureForUIImageAsset(CPakAsset* const asset
     }
 
     std::unique_ptr<CTexture> bc7Texture = std::make_unique<CTexture>(nullptr, 0ull, resData->shiftedWidth, resData->shiftedHeight, DXGI_FORMAT::DXGI_FORMAT_BC7_UNORM, 1ull, 1ull);
-    assertm(bc7Texture, "BC7 texture creation failed.");
+    assertm(bc7Texture, "Failed to create BC7 texture");
 
     if (doTiling)
     {
@@ -524,7 +506,6 @@ void* PreviewUIImageAsset(CAsset* const asset, const bool firstFrameForAsset)
 {
     CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
     UIImageAsset* const uiAsset = reinterpret_cast<UIImageAsset*>(pakAsset->extraData());
-    assertm(uiAsset, "Extra data should be valid at this point.");
 
     static float textureZoom = 1.0f;
     static eUIImageTileType selectedUIImage = eUIImageTileType::TYPE_HQ;
@@ -780,10 +761,10 @@ bool ExportUIImageAsset(CAsset* const asset, const int setting)
 {
     CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
     UIImageAsset* const uiAsset = reinterpret_cast<UIImageAsset*>(pakAsset->extraData());
-    assertm(uiAsset, "Extra data should be valid at this point.");
 
     // Create exported path + asset path.
-    std::filesystem::path exportPath = std::filesystem::current_path().append(std::format("{}\\{}", EXPORT_DIRECTORY_NAME, fourCCToString(asset->GetAssetType())));
+    std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory() / fourCCToString(asset->GetAssetType());
+
     if (!CreateDirectories(exportPath))
     {
         assertm(false, "Failed to create asset type directory.");
@@ -824,10 +805,11 @@ void InitUIImageAssetType()
     static const char* settings[] = { "PNG (High Quality)", "PNG (Low Quality)", "DDS (High Quality)", "DDS (Low Quality)" };
     AssetTypeBinding_t type =
     {
+        .name = "UI Image",
         .type = 'aiiu',
         .headerAlignment = 8,
         .loadFunc = LoadUIImageAsset,
-        .postLoadFunc = PostLoadUIImageAsset,
+        .postLoadFunc = nullptr,
         .previewFunc = PreviewUIImageAsset,
         .e = { ExportUIImageAsset, 0, settings, ARRSIZE(settings) },
     };

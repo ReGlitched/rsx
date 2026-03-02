@@ -4,6 +4,9 @@
 #pragma once
 #include <string>
 #include <game/rtech/utils/utils.h>
+#include <filesystem>
+#include <iomanip>
+#include <time.h>
 
 extern ExportSettings_t g_ExportSettings;
 
@@ -159,6 +162,7 @@ static std::map<AssetType_t, Color4> s_AssetTypeColours =
 	// bpwf
 };
 
+
 static const std::map<AssetType_t, const char*> s_AssetTypePaths =
 {
 	// model
@@ -197,6 +201,8 @@ static const std::map<AssetType_t, const char*> s_AssetTypePaths =
 	{ AssetType_t::UI,   "ui" },
 
 	// pak
+	{ AssetType_t::PTCH, "patch_master" },
+	{ AssetType_t::VERS, "patch_version" },
 	// Ptch "Pak Patch"
 	// vers "Pak Version"
 
@@ -238,6 +244,43 @@ struct AssetVersion_t
 	}
 };
 
+static const char* s_LogLevelNames[] = {
+	"INFO",
+	"WARNING",
+	"ERROR",
+};
+
+static uint32_t s_LogLevelColours[] = {
+	0xFFFFFFFF,
+	0xFFFF00FF,
+	0xFF0000FF,
+};
+
+struct ContainerMessage_t
+{
+	enum class MessageType_e : int8_t
+	{
+		MSG_INVALID = -1,
+		MSG_INFO = 0,
+		MSG_WARNING,
+		MSG_ERROR,
+	};
+
+	ContainerMessage_t(MessageType_e _type, const char* _sourceName, const char* _message) : type(_type), sourceName(_sourceName), message(_message) {};
+
+	~ContainerMessage_t()
+	{
+		free((void*)timestampStr);
+		free((void*)sourceName);
+		free((void*)message);
+	}
+
+	const char* timestampStr;
+	const char* sourceName;
+	const char* message;
+	MessageType_e type;
+};
+
 class CAssetContainer;
 
 class CAsset
@@ -269,6 +312,8 @@ public:
 	virtual uint32_t GetAssetType() const = 0;
 
 	const bool GetExportedStatus() const { return m_exported; }
+
+	const bool GetPostLoadStatus() const { return m_postLoadStatus; }
 
 	void* GetAssetData() const { return m_assetData; }
 
@@ -331,11 +376,20 @@ public:
 		m_exported = exported;
 	}
 
+	// TODO TODO TODO:
+	// init this as false on bpk/bsp/audio/mdl!
+	void SetPostLoadStatus(bool postLoaded)
+	{
+		m_postLoadStatus = postLoaded;
+	}
+
 private:
 	std::string m_assetName;
 	AssetVersion_t m_assetVersion;
 
 	bool m_exported;
+
+	bool m_postLoadStatus;
 
 protected:
 	void* m_assetData;
@@ -352,10 +406,25 @@ public:
 
 	virtual const ContainerType GetContainerType() const = 0;
 
+	void SetFilePath(const std::filesystem::path& filePath)
+	{
+		m_filePath = filePath;
+	}
+
+	const std::filesystem::path& GetFilePath() const
+	{
+		return m_filePath;
+	}
+
+private:
+	std::filesystem::path m_filePath;
+
 };
 
 // functions for asset loading.
 typedef void(*AssetLoadFunc_t)(CAssetContainer* container, CAsset* asset);
+
+typedef void(*AssetLoadCallback_t)(CAsset* asset);
 
 // functions for previewing the asset
 typedef void* (*AssetPreviewFunc_t)(CAsset* const asset, const bool firstFrameForAsset);
@@ -367,11 +436,12 @@ typedef bool(*AssetExportFunc_t)(CAsset* const asset, const int setting);
 
 struct AssetTypeBinding_t
 {
+	const char* name;
 	uint32_t type;
 	uint32_t headerAlignment;
-	AssetLoadFunc_t loadFunc;
-	AssetLoadFunc_t postLoadFunc;
-	AssetPreviewFunc_t previewFunc;
+	AssetLoadFunc_t loadFunc; // void(*AssetLoadFunc_t)(CAssetContainer* container, CAsset* asset);
+	AssetLoadFunc_t postLoadFunc; // void(*AssetLoadFunc_t)(CAssetContainer* container, CAsset* asset);
+	AssetPreviewFunc_t previewFunc; // void* (*AssetPreviewFunc_t)(CAsset* const asset, const bool firstFrameForAsset);
 
 	struct
 	{
@@ -401,7 +471,22 @@ public:
 
 	std::unordered_map<std::string, uint8_t> m_patchMasterEntries;
 
+	std::unordered_map<uint64_t, std::unordered_set<AssetLoadCallback_t>> m_assetPostLoadCallbacks;
+
 	CAssetContainer* m_pakPatchMaster;
+
+	ContainerMessage_t* m_logMessages;
+	uint32_t m_numLogMessages;
+
+	bool m_donePostLoad;
+
+	void AddAssetPostLoadCallback(uint64_t guid, AssetLoadCallback_t callback)
+	{
+		if (m_assetPostLoadCallbacks.find(guid) == m_assetPostLoadCallbacks.end())
+			m_assetPostLoadCallbacks.emplace(guid, std::unordered_set<AssetLoadCallback_t>());
+
+		m_assetPostLoadCallbacks[guid].insert(callback);
+	}
 
 	CAsset* const FindAssetByGUID(const uint64_t guid)
 	{
@@ -443,9 +528,125 @@ public:
 
 		m_patchMasterEntries.clear();
 		m_pakLoadStatusMap.clear();
+
+		m_donePostLoad = false;
 	}
 
 	void ProcessAssetsPostLoad();
+
+
+
+#define GET_LOG_MSG_VARIADIC(args, returnVar, fmt) std::vector<char> buf(1+std::vsnprintf(NULL, 0, fmt, args)); \
+											   va_list args2; \
+                                               va_copy(args2, args); \
+											   va_end(args); \
+											   std::vsnprintf(buf.data(), buf.size(), fmt, args2); \
+											   va_end(args2); \
+											   returnVar = std::string(buf.begin(), buf.end())
+	// Logging functions
+	void Log_Info(const CAssetContainer* const container, const char* fmt, ...)
+	{
+		va_list args;
+		va_start(args, fmt);
+
+		std::string msg;
+		GET_LOG_MSG_VARIADIC(args, msg, fmt);
+
+		const std::string sourceName = container ? container->GetFilePath().filename().string() : "N/A";
+
+		Log("[%s] %s\n", sourceName.c_str(), msg.c_str());
+		LogMessages_Append(ContainerMessage_t::MessageType_e::MSG_INFO, sourceName, msg);
+	}
+
+	void Log_Warning(const CAssetContainer* const container, const char* fmt, ...)
+	{
+		va_list args;
+
+		va_start(args, fmt);
+		
+		std::string msg;
+		GET_LOG_MSG_VARIADIC(args, msg, fmt);
+
+		const std::string sourceName = container ? container->GetFilePath().filename().string() : "N/A";
+
+		Log("WARNING [%s]: %s\n", sourceName.c_str(), msg.c_str());
+
+		LogMessages_Append(ContainerMessage_t::MessageType_e::MSG_WARNING, sourceName, msg);
+	}
+
+	void Log_Error(const CAssetContainer* const container, const char* fmt, ...)
+	{
+		va_list args;
+		va_start(args, fmt);
+
+		std::string msg;
+		GET_LOG_MSG_VARIADIC(args, msg, fmt);
+
+		const std::string sourceName = container ? container->GetFilePath().filename().string() : "N/A";
+
+		Log("ERROR [%s]: %s\n", sourceName.c_str(), msg.c_str());
+
+		LogMessages_Append(ContainerMessage_t::MessageType_e::MSG_ERROR, sourceName, msg);
+	}
+
+	const ContainerMessage_t* GetLogMessages() const
+	{
+		return m_logMessages;
+	}
+
+	const uint32_t GetNumLogMessages() const
+	{
+		return m_numLogMessages;
+	}
+
+	void LogMessages_Append(ContainerMessage_t::MessageType_e type, const std::string& sourceName, const std::string& msg)
+	{
+		// If there's no log messages ptr, try and allocate a placeholder so we can write something into the array
+		if (!m_logMessages)
+			m_logMessages = reinterpret_cast<ContainerMessage_t*>(calloc(0, sizeof(ContainerMessage_t)));
+
+		// If there's still no log messages ptr just return since logs are not critical
+		if (!m_logMessages)
+			return;
+
+		m_logMessages = reinterpret_cast<ContainerMessage_t*>(realloc(m_logMessages, sizeof(ContainerMessage_t) * (m_numLogMessages + 1)));
+
+		const time_t t = std::time(nullptr);
+		tm tm;
+		if (localtime_s(&tm, &t))
+		{
+			assertm(0, "failed to get time");
+			return;
+		}
+
+		std::ostringstream oss;
+		oss << std::put_time(&tm, "%H:%M:%S");
+
+		ContainerMessage_t* m = &m_logMessages[m_numLogMessages];
+		m->type = type;
+		m->timestampStr = _strdup(oss.str().c_str());
+		m->message = _strdup(msg.c_str());
+		m->sourceName = _strdup(sourceName.c_str());
+
+		m_numLogMessages++;
+	}
+
+	void FreeLogMessages()
+	{
+		if (m_logMessages && m_numLogMessages > 0)
+		{
+			for (uint32_t i = 0; i < m_numLogMessages; ++i)
+			{
+				free((void*)m_logMessages->message);
+				free((void*)m_logMessages->message);
+			}
+
+			free(m_logMessages);
+
+			m_numLogMessages = 0;
+			m_logMessages = nullptr;
+		}
+	}
 };
 
 extern CGlobalAssetData g_assetData;

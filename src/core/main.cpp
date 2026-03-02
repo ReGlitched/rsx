@@ -2,25 +2,34 @@
 #include <core/crashhandler.h>
 
 #include <thirdparty/imgui/imgui.h>
-#include <thirdparty/imgui/misc/imgui_utility.h>
 #include <thirdparty/imgui/backends/imgui_impl_win32.h>
 #include <thirdparty/imgui/backends/imgui_impl_dx11.h>
+
+#include <thirdparty/imgui/misc/imgui_utility.h>
 
 #include <core/render/dx.h>
 #include <core/input/input.h>
 #include <core/cache/cachedb.h>
 #include <core/utils/cli_parser.h>
+#include <core/utils/exportsettings.h>
 #include <core/filehandling/load.h>
 
 #include <core/splash.h>
 #include <core/window.h>
 #include <core/render.h>
-#include <core/utils/fileassoc.h>
+#include <iostream>
+#include <game/rtech/utils/bsp/bspflags.h>
 
 CDXParentHandler* g_dxHandler;
 std::atomic<uint32_t> maxConcurrentThreads = 1u;
 
 CBufferManager g_BufferManager; // called constructor on init.
+
+ExportSettings_t g_ExportSettings{ .exportNormalRecalcSetting = eNormalExportRecalc::NML_RECALC_NONE, .exportTextureNameSetting = eTextureExportName::TXTR_NAME_TEXT,
+    .exportMaterialTextures = true, .exportPathsFull = false, .exportAssetDeps = false, .disableCachedNames = false, .previewedSkinIndex = 0,
+    .qcMajorVersion = 49, .qcMinorVersion = 0, .exportRigSequences = true, .exportModelSkin = false, .exportModelMatsTruncated = false,
+    .exportQCIFiles = false, .exportPhysicsContentsFilter = static_cast<uint32_t>(TRACE_MASK_ALL), .exportDirectory = ""
+};
 
 // Handle CLI to only init certain asset types.
 static void HandleAssetRegistration(const CCommandLine* const cli)
@@ -59,7 +68,8 @@ static void HandleAssetRegistration(const CCommandLine* const cli)
     
     // ui
     extern void InitUIAssetType();
-    // hsys
+
+    // rlcd
     extern void InitLcdScreenEffectAssetType();
     extern void InitRTKAssetType();
     
@@ -74,6 +84,8 @@ static void HandleAssetRegistration(const CCommandLine* const cli)
     extern void InitRSONAssetType();
     extern void InitSubtitlesAsset();
     extern void InitLoclAssetType();
+
+    extern void InitODLAssetType();
     
     // vpk
     extern void InitWrapAssetType();
@@ -105,6 +117,7 @@ static void HandleAssetRegistration(const CCommandLine* const cli)
     // texture/material
     InitMaterialAssetType();
     InitMaterialSnapshotAssetType();
+
     // mt4a
     InitTextureAssetType();
     InitTextureAnimationAssetType();
@@ -139,6 +152,8 @@ static void HandleAssetRegistration(const CCommandLine* const cli)
     InitSubtitlesAsset();
     InitLoclAssetType();
 
+    InitODLAssetType();
+
     // vpk
     InitWrapAssetType();
     InitWeaponDefinitionAssetType();
@@ -155,19 +170,74 @@ static void HandleAssetRegistration(const CCommandLine* const cli)
     InitBluepointWrappedFileAssetType();
 }
 
+#if defined(NDEBUG) && defined(_WIN32)
+// https://stackoverflow.com/a/57241985
+void CreateConsole()
+{
+    if (AttachConsole(ATTACH_PARENT_PROCESS))
+        return;
+
+    if (!AllocConsole())
+        return;
+
+    // std::cout, std::clog, std::cerr, std::cin
+    FILE* fDummy;
+    freopen_s(&fDummy, "CONOUT$", "w", stdout);
+    freopen_s(&fDummy, "CONOUT$", "w", stderr);
+    freopen_s(&fDummy, "CONIN$", "r", stdin);
+    std::cout.clear();
+    std::clog.clear();
+    std::cerr.clear();
+    std::cin.clear();
+
+    // std::wcout, std::wclog, std::wcerr, std::wcin
+    HANDLE hConOut = CreateFile(_T("CONOUT$"), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hConIn = CreateFile(_T("CONIN$"), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    SetStdHandle(STD_OUTPUT_HANDLE, hConOut);
+    SetStdHandle(STD_ERROR_HANDLE, hConOut);
+    SetStdHandle(STD_INPUT_HANDLE, hConIn);
+    std::wcout.clear();
+    std::wclog.clear();
+    std::wcerr.clear();
+    std::wcin.clear();
+}
+#endif
+
+
+
 int main(int argc, char* argv[])
 {
     CCommandLine cli(argc, argv);
 
+#if defined(BUILD_NOGUI)
+    constexpr bool noGui = true;
+#else
+    const bool noGui = cli.HasParam("-nogui");
+#endif
+
+#if defined(NDEBUG) && defined(_WIN32)
+    if (noGui)
+        CreateConsole();
+#endif
+
     // we want the visual studio debugger to be able to control the working directory
-#if defined(NDEBUG)
+#if defined(NDEBUG) && !defined(BUILD_NOGUI)
     // this is needed to properly support drag'n'drop, it changes the current working directory to the file you drag into the exe
-    if (!RestoreCurrentWorkingDirectory())
+    // HOWEVER: this should not apply when nogui is specified, as it is expected that shorter, relative file paths can be used when running CLI
+    if (!noGui && !RestoreCurrentWorkingDirectory())
     {
         return EXIT_FAILURE;
     }
 #endif // #if defined(NDEBUG)
 
+    // Set default export directory.
+    // TODO: If/when an option for this is added to the UI, this line will need to be removed and replaced with something that reads the value from imgui.ini
+    g_ExportSettings.SetExportDirectory(std::filesystem::current_path() / EXPORT_DIRECTORY_NAME);
+
+    if (noGui)
+        g_ExportSettings.SetFromCLI(&cli);
+
+#if defined(_WIN32)
     // https://github.com/microsoft/DirectXTex/wiki/DirectXTex#initialization
     // [rika]: supposed to be done per thread but it Just Works so I'm not messing with it
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -176,6 +246,7 @@ int main(int argc, char* argv[])
         assertm(false, "failed to initialize COM");
         return EXIT_FAILURE;
     }
+#endif
 
 #ifdef EXCEPTION_HANDLER
     g_CrashHandler.Init();
@@ -194,66 +265,98 @@ int main(int argc, char* argv[])
     maxConcurrentThreads = std::max(1u, CThread::GetConCurrentThreads());
 
 #if defined(SPLASHSCREEN)
-    DrawSplashScreen(); // draw splashscreen now for 2~ seconds
+    if(!noGui)
+        DrawSplashScreen(); // draw splashscreen now for 2~ seconds
 #endif // #if defined(SPLASHSCREEN)
 
-    const HWND windowHandle = SetupWindow();
-
-    g_dxHandler = new CDXParentHandler(windowHandle);
-    if (!g_dxHandler->SetupDeviceD3D())
+#if !defined(BUILD_NOGUI)
+    if (!noGui)
     {
-        assertm(false, _T("Failed to setup D3D."));
-        delete g_dxHandler;
-        return EXIT_FAILURE;
+        const HWND windowHandle = SetupWindow();
+
+        g_dxHandler = new CDXParentHandler(windowHandle);
+        if (!g_dxHandler->SetupDeviceD3D())
+        {
+            assertm(false, _T("Failed to setup D3D."));
+            delete g_dxHandler;
+            return EXIT_FAILURE;
+        }
+        g_pInput->Init(windowHandle);
+
+        ShowWindow(windowHandle, SW_SHOWDEFAULT);
+        UpdateWindow(windowHandle);
+
+        ImGui::CreateContext();
+        g_pImGuiHandler->SetStyle();
+        g_pImGuiHandler->SetupHandler();
+
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard
+            /*| ImGuiConfigFlags_NavEnableGamepad*/
+            | ImGuiConfigFlags_DockingEnable
+            | ImGuiConfigFlags_ViewportsEnable
+            ;
+
+        GImGui->NavCursorVisible = false; // was NavDisableHighlight
+
+        ImGui_ImplWin32_Init(windowHandle);
+        ImGui_ImplDX11_Init(g_dxHandler->GetDevice(), g_dxHandler->GetDeviceContext());
     }
-    g_pInput->Init(windowHandle);
+    else
+#endif
+    {
+        g_dxHandler = new CDXParentHandler(NULL);
 
-    ShowWindow(windowHandle, SW_SHOWDEFAULT);
-    UpdateWindow(windowHandle);
+        g_pImGuiHandler->SetNoImGui(true);
 
-    ImGui::CreateContext();
-    g_pImGuiHandler->SetStyle();
-    g_pImGuiHandler->SetupHandler();
+        const uint32_t totalThreadCount = CThread::GetConCurrentThreads();
 
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard
-        /*| ImGuiConfigFlags_NavEnableGamepad*/
-        | ImGuiConfigFlags_DockingEnable
-        | ImGuiConfigFlags_ViewportsEnable
-        ;
+        if (const char* const numParseThreads = cli.GetParamValue("--parsethreads"))
+            UtilsConfig->parseThreadCount = clamp(static_cast<uint32_t>(atoi(numParseThreads)), 1u, totalThreadCount);
 
-    GImGui->NavCursorVisible = false; // was NavDisableHighlight
-
-    ImGui_ImplWin32_Init(windowHandle);
-    ImGui_ImplDX11_Init(g_dxHandler->GetDevice(), g_dxHandler->GetDeviceContext());
+        if (const char* const numExportThreads = cli.GetParamValue("--exportthreads"))
+            UtilsConfig->exportThreadCount = clamp(static_cast<uint32_t>(atoi(numExportThreads)), 1u, totalThreadCount);
+    }
 
     // call after initializing dx and gui otherwise you will crash
     HandleLoadFromCommandLine(&cli);
 
-    bool quit = false;
-    while (!quit)
+#if !defined(BUILD_NOGUI)
+    if (!noGui)
     {
-        MSG msg;
-        while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+        bool quit = false;
+        while (!quit)
         {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            MSG msg;
+            while (PeekMessage(&msg, 0, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
 
-            if (msg.message == WM_QUIT)
-                quit = true;
+                if (msg.message == WM_QUIT)
+                    quit = true;
+            }
+            if (quit)
+                break;
+
+            HandleRenderFrame();
         }
-        if (quit)
-            break;
-
-        HandleRenderFrame();
     }
+#endif
 
     g_cacheDBManager.SaveToFile((std::filesystem::current_path() / "rsx_cache_db.bin").string());
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+
+#if !defined(BUILD_NOGUI)
+    if (!noGui)
+    {
+        ImGui_ImplDX11_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+    }
+#endif
 
     delete g_dxHandler;
+
 	return EXIT_SUCCESS;
 }
 

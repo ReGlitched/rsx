@@ -124,19 +124,17 @@ void PostLoadUIImageAtlasAsset(CAssetContainer* const pak, CAsset* const asset)
 
     // Setup main texture.
     UIImageAtlasAsset* const uiAsset = reinterpret_cast<UIImageAtlasAsset*>(pakAsset->extraData());
-    assertm(uiAsset, "Extra data should be valid at this point.");
 
     CPakAsset* const textureAsset = g_assetData.FindAssetByGUID<CPakAsset>(uiAsset->atlasGUID);
     assertm(textureAsset, "Asset should be valid.");
 
     TextureAsset* const txtrAsset = reinterpret_cast<TextureAsset*>(textureAsset->extraData());
-    assertm(txtrAsset, "Extra data should be valid.");
 
     if (txtrAsset->name)
     {
         std::string atlasName = "ui_image_atlas/" + std::string(txtrAsset->name) + ".rpak";
 
-        assertm(pakAsset->data()->guid == RTech::StringToGuid(atlasName.c_str()), "hashed name for atlas did not match existing guid\n");
+        //assertm(pakAsset->data()->guids == RTech::StringToGuid(atlasName.c_str()), "hashed name for atlas did not match existing guid\n");
 
         pakAsset->SetAssetName(atlasName, true);
     }
@@ -258,7 +256,6 @@ void* PreviewUIImageAtlasAsset(CAsset* const asset, const bool firstFrameForAsse
     }
 
     UIImageAtlasAsset* const uiAsset = reinterpret_cast<UIImageAtlasAsset*>(pakAsset->extraData());
-    assertm(uiAsset, "Extra data should be valid at this point.");
 
     static float textureZoom = 1.0f;
     static int lastSelectedTexture = -1;
@@ -514,10 +511,9 @@ bool ExportUIImageAtlasAsset(CAsset* const asset, const int setting)
 {
     CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
     UIImageAtlasAsset* const uiAsset = reinterpret_cast<UIImageAtlasAsset*>(pakAsset->extraData());
-    assertm(uiAsset, "Extra data should be valid at this point.");
 
     // Create exported path + asset path.
-    std::filesystem::path exportPath = std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME); // 
+    std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory();
     const std::filesystem::path atlasPath(asset->GetAssetName());
 
     // truncate paths?
@@ -800,6 +796,7 @@ void InitUIImageAtlasAssetType()
     static const char* settings[] = { "PNG (Atlas)", "PNG (Textures)", "DDS (Atlas)", "DDS (Textures)", "JSON (Atlas Data)" };
     AssetTypeBinding_t type =
     {
+        .name = "UI Image Atlas",
         .type = 'gmiu',
         .headerAlignment = 8,
         .loadFunc = LoadUIImageAtlasAsset,

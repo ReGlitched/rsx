@@ -18,12 +18,14 @@
 #include <game/rtech/cpakfile.h>
 #include <game/rtech/assets/model.h>
 #include <game/rtech/assets/texture.h>
+#include <game/rtech/assets/settings.h>
+#include <core/render/preview/preview.h>
 
 extern CDXParentHandler* g_dxHandler;
 extern std::atomic<uint32_t> maxConcurrentThreads;
+extern ExportSettings_t g_ExportSettings;
 
-ExportSettings_t g_ExportSettings{ .exportNormalRecalcSetting = eNormalExportRecalc::NML_RECALC_NONE, .exportTextureNameSetting = eTextureExportName::TXTR_NAME_TEXT, .exportMaterialTextures = true,
-    .exportPathsFull = false, .exportAssetDeps = false, .disableCachedNames = false, .previewedSkinIndex = 0, .qcMajorVersion = 49, .qcMinorVersion = 0, .exportRigSequences = true, .exportModelSkin = false, .exportModelMatsTruncated = false, .exportQCIFiles = false, .exportPhysicsContentsFilter = static_cast<uint32_t>(TRACE_MASK_ALL) };
+
 PreviewSettings_t g_PreviewSettings { .previewCullDistance = PREVIEW_CULL_DEFAULT, .previewMovementSpeed = PREVIEW_SPEED_DEFAULT };
 
 CPreviewDrawData g_currentPreviewDrawData;
@@ -73,244 +75,6 @@ struct AssetCompare_t
         return (static_cast<int64_t>(assetA->GetAssetType()) - assetB->GetAssetType()) > 0;
     }
 };
-
-struct AsyncAssetFilterState
-{
-    std::mutex mutex;
-    std::vector<CGlobalAssetData::AssetLookup_t> pendingResults;
-    std::string pendingFilterText;
-    uint64_t pendingJobId = 0;
-    bool hasPendingResults = false;
-    std::atomic<uint64_t> lastRequestedJobId{0};
-    std::atomic<int32_t> runningJobs{0};
-    std::atomic<uint32_t> activeJobId{0};
-    std::atomic<bool> progressBarVisible{false};
-    std::atomic<uint32_t> progressProcessed{0};
-    std::atomic<uint32_t> progressTotal{0};
-    const ProgressBarEvent_t* progressEvent = nullptr;
-};
-
-static AsyncAssetFilterState g_AsyncAssetFilterState;
-
-static std::string TrimFilterToken(const std::string& token)
-{
-    const char* const whitespace = " \t\r\n";
-    const size_t start = token.find_first_not_of(whitespace);
-    if (start == std::string::npos)
-        return {};
-    const size_t end = token.find_last_not_of(whitespace);
-    return token.substr(start, end - start + 1);
-}
-
-static bool ContainsCaseInsensitive(const std::string& haystack, const std::string& needle)
-{
-    if (needle.empty())
-        return true;
-
-    auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
-        [](char a, char b)
-        {
-            return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
-        });
-
-    return it != haystack.end();
-}
-
-static void ParseFilterTokens(const std::string& filterText, std::vector<std::string>& includeTerms, std::vector<std::string>& excludeTerms)
-{
-    includeTerms.clear();
-    excludeTerms.clear();
-
-    size_t start = 0;
-    while (start < filterText.length())
-    {
-        const size_t end = filterText.find(',', start);
-        const size_t len = end == std::string::npos ? std::string::npos : end - start;
-        std::string token = filterText.substr(start, len);
-        token = TrimFilterToken(token);
-
-        if (!token.empty())
-        {
-            if (token.front() == '-')
-            {
-                std::string term = TrimFilterToken(token.substr(1));
-                if (!term.empty())
-                    excludeTerms.emplace_back(std::move(term));
-            }
-            else
-            {
-                includeTerms.emplace_back(std::move(token));
-            }
-        }
-
-        if (end == std::string::npos)
-            break;
-        start = end + 1;
-    }
-}
-
-static std::vector<CGlobalAssetData::AssetLookup_t> BuildFilteredAssetListSnapshot(const std::string& filterText, std::atomic<uint32_t>* progressCounter, uint32_t progressTotal)
-{
-    std::vector<CGlobalAssetData::AssetLookup_t> matches;
-
-    if (filterText.empty())
-    {
-        if (progressCounter)
-            progressCounter->store(progressTotal, std::memory_order_relaxed);
-        return matches;
-    }
-
-    std::vector<std::string> includeTerms;
-    std::vector<std::string> excludeTerms;
-    ParseFilterTokens(filterText, includeTerms, excludeTerms);
-
-    const bool filterActive = !includeTerms.empty() || !excludeTerms.empty();
-
-    char* end = nullptr;
-    const uint64_t parsedGuid = strtoull(filterText.c_str(), &end, 0);
-    const bool filterIsGuid = end == (filterText.c_str() + filterText.length());
-
-    if (!filterActive && !filterIsGuid)
-    {
-        if (progressCounter)
-            progressCounter->store(progressTotal, std::memory_order_relaxed);
-        return matches;
-    }
-
-    matches.reserve(std::min<size_t>(g_assetData.v_assets.size(), 4096));
-
-    for (const auto& lookup : g_assetData.v_assets)
-    {
-        const std::string& assetName = lookup.m_asset->GetAssetName();
-        bool added = false;
-
-        if (filterActive)
-        {
-            bool includeMatched = includeTerms.empty();
-            if (!includeTerms.empty())
-            {
-                for (const std::string& term : includeTerms)
-                {
-                    if (ContainsCaseInsensitive(assetName, term))
-                    {
-                        includeMatched = true;
-                        break;
-                    }
-                }
-            }
-
-            bool excluded = false;
-            if (includeMatched)
-            {
-                for (const std::string& term : excludeTerms)
-                {
-                    if (ContainsCaseInsensitive(assetName, term))
-                    {
-                        excluded = true;
-                        break;
-                    }
-                }
-            }
-
-            if (includeMatched && !excluded)
-            {
-                matches.push_back(lookup);
-                added = true;
-            }
-        }
-
-        if (!added && filterIsGuid && parsedGuid == RTech::StringToGuid(assetName.c_str()))
-            matches.push_back(lookup);
-
-        if (progressCounter)
-            progressCounter->fetch_add(1, std::memory_order_relaxed);
-    }
-
-    matches.shrink_to_fit();
-    if (progressCounter)
-        progressCounter->store(progressTotal, std::memory_order_relaxed);
-    return matches;
-}
-
-static void SubmitAsyncAssetFilterJob(const std::string& filterText)
-{
-    if (filterText.empty())
-        return;
-
-    const uint64_t jobId = g_AsyncAssetFilterState.lastRequestedJobId.fetch_add(1) + 1;
-    g_AsyncAssetFilterState.runningJobs.fetch_add(1);
-    g_AsyncAssetFilterState.activeJobId.store(static_cast<uint32_t>(jobId));
-    const uint32_t assetCount = static_cast<uint32_t>(g_assetData.v_assets.size());
-    g_AsyncAssetFilterState.progressTotal.store(assetCount, std::memory_order_relaxed);
-    g_AsyncAssetFilterState.progressProcessed.store(0, std::memory_order_relaxed);
-
-    constexpr size_t kSearchProgressThreshold = 256;
-    const bool shouldShowProgressBar = filterText.length() > kSearchProgressThreshold;
-
-    if (shouldShowProgressBar && !g_AsyncAssetFilterState.progressBarVisible.exchange(true))
-    {
-        // use inverted mode so the handler treats our processed counter as the displayed value (fills left-to-right)
-        g_AsyncAssetFilterState.progressEvent = g_pImGuiHandler->AddProgressBarEvent("Searching assets", assetCount, &g_AsyncAssetFilterState.progressProcessed, true);
-
-        if (!g_AsyncAssetFilterState.progressEvent)
-            g_AsyncAssetFilterState.progressBarVisible.store(false);
-    }
-
-    CThread([filterText, jobId]()
-    {
-        auto results = BuildFilteredAssetListSnapshot(filterText, &g_AsyncAssetFilterState.progressProcessed, g_AsyncAssetFilterState.progressTotal.load());
-
-        if (jobId == g_AsyncAssetFilterState.lastRequestedJobId.load())
-        {
-            std::scoped_lock lock(g_AsyncAssetFilterState.mutex);
-            g_AsyncAssetFilterState.pendingResults = std::move(results);
-            g_AsyncAssetFilterState.pendingFilterText = filterText;
-            g_AsyncAssetFilterState.pendingJobId = jobId;
-            g_AsyncAssetFilterState.hasPendingResults = true;
-        }
-
-        g_AsyncAssetFilterState.progressProcessed.store(g_AsyncAssetFilterState.progressTotal.load());
-
-        if (g_AsyncAssetFilterState.progressEvent)
-        {
-            g_pImGuiHandler->FinishProgressBarEvent(g_AsyncAssetFilterState.progressEvent);
-            g_AsyncAssetFilterState.progressEvent = nullptr;
-            g_AsyncAssetFilterState.progressBarVisible.store(false);
-        }
-
-        g_AsyncAssetFilterState.runningJobs.fetch_sub(1);
-    }).detach();
-}
-
-static bool ConsumeCompletedAssetFilterResults(std::vector<CGlobalAssetData::AssetLookup_t>& filteredAssets, uint64_t& lastAppliedJobId, std::string& lastAppliedFilterText)
-{
-    std::scoped_lock lock(g_AsyncAssetFilterState.mutex);
-    if (!g_AsyncAssetFilterState.hasPendingResults)
-        return false;
-
-    filteredAssets = g_AsyncAssetFilterState.pendingResults;
-    filteredAssets.shrink_to_fit();
-    lastAppliedJobId = g_AsyncAssetFilterState.pendingJobId;
-    lastAppliedFilterText = g_AsyncAssetFilterState.pendingFilterText;
-    g_AsyncAssetFilterState.hasPendingResults = false;
-
-    g_AsyncAssetFilterState.progressProcessed.store(g_AsyncAssetFilterState.progressTotal.load());
-    if (g_AsyncAssetFilterState.progressEvent)
-    {
-        g_pImGuiHandler->FinishProgressBarEvent(g_AsyncAssetFilterState.progressEvent);
-        g_AsyncAssetFilterState.progressEvent = nullptr;
-        g_AsyncAssetFilterState.progressBarVisible.store(false);
-    }
-
-    return true;
-}
-
-
-// TODO: Add shortcut handling for copying asset names with CTRL+C when assets are selected and asset list is focused.
-//void HandleImGuiShortcuts()
-//{
-//
-//}
 
 void ColouredTextForAssetType(const CAsset* const asset)
 {
@@ -610,6 +374,128 @@ void ApplySelectionRequests(ImGuiMultiSelectIO* ms_io, std::deque<CAsset*>& sele
     }
 }
 
+void DrawSettingsWindow(CUIState* uiState)
+{
+    constexpr uint32_t minThreads = 1u;
+
+    ImGui::SetNextWindowSize(ImVec2(0.f, 0.f), ImGuiCond_Always);
+    if (ImGui::Begin("Settings", &uiState->settingsWindowVisible, ImGuiWindowFlags_NoResize))
+    {
+        // ===============================================================================================================
+        ImGui::SeparatorText("Export");
+
+        ImGui::Checkbox("Export full asset paths", &g_ExportSettings.exportPathsFull);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Enables exporting of assets to their full path within the export directory, as shown by the listed asset names.\nWhen disabled, assets will be exported into the root-level of a folder named after the asset's type (e.g. \"material/\",\"ui_image/\").");
+
+        ImGui::Checkbox("Export asset dependencies", &g_ExportSettings.exportAssetDeps);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Enables exporting of all dependencies that are associated with any asset that is being exported.");
+
+        ImGui::Checkbox("Disable CacheDB names", &g_ExportSettings.disableCachedNames);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Disables loading names from the cache file, new names will still be added.");
+
+        // texture settings
+        ImGui::SeparatorText("Export (Textures)");
+
+        ImGui::Combo("Material Texture Names", reinterpret_cast<int*>(&g_ExportSettings.exportTextureNameSetting), s_TextureExportNameSetting, static_cast<int>(ARRAYSIZE(s_TextureExportNameSetting)));
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Naming scheme for exporting textures via materials options are as follows:\nGUID: exports only using the asset's GUID as a name.\nReal: exports texture using a real name (asset name or guid if no name).\nText: exports the texture with a text name always, generating one if there is none provided.\nSemantic: exports with a generated name all the time, useful for models.");
+
+        ImGui::Combo("Normal Recalc", reinterpret_cast<int*>(&g_ExportSettings.exportNormalRecalcSetting), s_NormalExportRecalcSetting, static_cast<int>(ARRAYSIZE(s_NormalExportRecalcSetting)));
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("None: exports the normal as it is stored.\nDirectX: exports with a generated blue channel.\nOpenGL: exports with a generated blue channel and inverts the green channel.");
+
+        ImGui::Checkbox("Export Material Textures", &g_ExportSettings.exportMaterialTextures);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Enables exporting of all textures that are associated with any material asset that is being exported.");
+
+        // model settings
+        ImGui::SeparatorText("Export (Models)");
+
+        ImGui::Checkbox("Export Sequences", &g_ExportSettings.exportRigSequences);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Enables exporting of all animation sequences that are associated with any rig or model asset that is being exported.");
+
+        ImGui::Checkbox("Export Skin", &g_ExportSettings.exportModelSkin);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Enables exporting a model with the previewed skin.");
+
+        ImGui::Checkbox("Truncate Materials", &g_ExportSettings.exportModelMatsTruncated);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Truncates material names on SMD.");
+
+        ImGui::Checkbox("Enable QCI Files", &g_ExportSettings.exportQCIFiles);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("QC file will be split into multiple include files.");
+
+        ImGui::PushItemWidth(48.0f);
+        ImGui::InputScalar("##QCTargetMajor", ImGuiDataType_U16, reinterpret_cast<uint16_t*>(&g_ExportSettings.qcMajorVersion), nullptr, nullptr, "%u", ImGuiInputTextFlags_CharsDecimal);
+        ImGui::SameLine();
+        ImGui::InputScalar("##QCTargetMinor", ImGuiDataType_U16, reinterpret_cast<uint16_t*>(&g_ExportSettings.qcMinorVersion), nullptr, nullptr, "%u", ImGuiInputTextFlags_CharsDecimal);
+        ImGui::PopItemWidth();
+        ImGui::SameLine();
+        ImGui::Text("QC Target Version");
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Desired version for QC files to be compatible with.");
+
+        // physics settings
+        ImGui::InputInt("Physics contents filter", reinterpret_cast<int*>(&g_ExportSettings.exportPhysicsContentsFilter), 1, 100, ImGuiInputTextFlags_CharsHexadecimal);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Filter physics meshes in or out based on selected contents.");
+
+        ImGui::Checkbox("Physics contents filter exclusive", &g_ExportSettings.exportPhysicsFilterExclusive);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Exclude physics meshes containing any of the specified contents.");
+
+        ImGui::Checkbox("Physics contents filter require all", &g_ExportSettings.exportPhysicsFilterAND);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Filter only physics meshes containing all specified contents.");
+
+        // ===============================================================================================================
+        ImGui::SeparatorText("Parsing");
+
+        ImGui::Combo("Compression Level", reinterpret_cast<int*>(&UtilsConfig->compressionLevel), s_CompressionLevelSetting, static_cast<int>(ARRAYSIZE(s_CompressionLevelSetting)));
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Specifies the compression level used when storing parsed assets in memory.\nWARNING: Modify only if you know what you�re doing; otherwise, you may run out of memory.\nNone: no compression.\nSuper Fast: Fastest level with the lowest compression ratio.\nVery Fast: Standard setting; fastest level with a decent compression ratio.\nFast: Fastest level with a good compression ratio.\nNormal: Standard LZ speed with the highest compression ratio.");
+
+        ImGui::SliderScalar("Parse Threads", ImGuiDataType_U32, &UtilsConfig->parseThreadCount, &minThreads, reinterpret_cast<int*>(&maxConcurrentThreads));
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("The number of CPU threads that will be used for loading files.\n\nIn general, the higher the number, the faster RSX will be able to load the selected files.");
+
+        ImGui::SliderScalar("Export Threads", ImGuiDataType_U32, &UtilsConfig->exportThreadCount, &minThreads, reinterpret_cast<int*>(&maxConcurrentThreads));
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("The number of CPU threads that will be used for exporting assets.\n\nA higher number of threads will usually make RSX export assets more quickly, however the increased disk usage may cause decreased performance.");
+
+        // ===============================================================================================================
+        ImGui::SeparatorText("Preview");
+
+        ImGui::SliderFloat("Cull Distance", &g_PreviewSettings.previewCullDistance, PREVIEW_CULL_MIN, PREVIEW_CULL_MAX);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Distance at which render of 3D objects will stop. Note: only updated on startup.\n"); // todo: recreate projection matrix ?
+
+        ImGui::SliderFloat("Movement Speed", &g_PreviewSettings.previewMovementSpeed, PREVIEW_SPEED_MIN, PREVIEW_SPEED_MAX);
+        ImGui::SameLine();
+        g_pImGuiHandler->HelpMarker("Speed at which the camera moves through the 3D scene.\n");
+
+        // ===============================================================================================================
+        ImGui::SeparatorText("Export Formats");
+
+        for (auto& it : g_assetData.m_assetTypeBindings)
+        {
+            if (it.second.e.exportSettingArr)
+            {
+                ImGui::Combo(fourCCToString(it.first).c_str(), &it.second.e.exportSetting, it.second.e.exportSettingArr, static_cast<int>(it.second.e.exportSettingArrSize));
+            }
+        }
+
+        ImGui::End();
+    }
+}
+extern void ItemflavWindow_Draw(CUIState*);
+extern void LogWindow_Draw(CUIState*);
+
 void HandleRenderFrame()
 {
     ImGui_ImplDX11_NewFrame();
@@ -640,7 +526,9 @@ void HandleRenderFrame()
 
     CUIState& uiState = g_dxHandler->GetUIState();
 
-    //ImGui::ShowDemoWindow();
+#if defined(DEBUG_IMGUI_DEMO)
+    ImGui::ShowDemoWindow();
+#endif
 
     static std::deque<CAsset*> selectedAssets;
     static std::vector<CGlobalAssetData::AssetLookup_t> filteredAssets;
@@ -653,7 +541,6 @@ void HandleRenderFrame()
     CDXDrawData* previewDrawData = nullptr;
     if (ImGui::BeginMainMenuBar())
     {
-
         if (ImGui::BeginMenu("File"))
         {
             if (ImGui::MenuItem("Open"))
@@ -665,6 +552,7 @@ void HandleRenderFrame()
                     filteredAssets.clear();
                     prevRenderInfoAsset = nullptr;
                     g_assetData.ClearAssetData();
+                    uiState.ClearAssetData();
 
                     // We kinda leak the thread here but it's okay, we want it to keep executing.
                     CThread(HandleOpenFileDialog, g_dxHandler->GetWindowHandle()).detach();
@@ -675,10 +563,15 @@ void HandleRenderFrame()
             {
                 if (!inJobAction)
                 {
+                    if(g_assetData.v_assets.size() > 0)
+                        g_assetData.Log_Info(nullptr, "Unloaded %lld asset%s from %lld container file%s", g_assetData.v_assets.size(), g_assetData.v_assets.size() == 1 ? "" : "s", g_assetData.v_assetContainers.size(), g_assetData.v_assetContainers.size() == 1 ? "" : "s");
+
                     selectedAssets.clear();
                     filteredAssets.clear();
                     prevRenderInfoAsset = nullptr;
                     g_assetData.ClearAssetData();
+                    uiState.ClearAssetData();
+
                 }
             }
 
@@ -687,13 +580,18 @@ void HandleRenderFrame()
 
         if (ImGui::BeginMenu("Edit"))
         {
-            //if (ImGui::MenuItem("Copy Asset Names", "CTRL+C"))
-            //{
-            // 
-            //}
-
             if (ImGui::MenuItem("Settings"))
                 uiState.ShowSettingsWindow(true);
+
+#if defined(HAS_ITEMFLAV_WINDOW)
+            if (ImGui::MenuItem("Itemflavors"))
+                uiState.ShowItemflavWindow(true);
+#endif
+
+#if defined(HAS_LOG_WINDOW)
+            if (ImGui::MenuItem("Logs"))
+                uiState.ShowLogWindow(true);
+#endif
 
             ImGui::EndMenu();
         }
@@ -739,7 +637,7 @@ void HandleRenderFrame()
         }
     }
 
-
+    static size_t prevAssetCount = g_assetData.v_assets.size();
     // Only render window if we have a pak loaded and if we aren't currently in pakload.
     if (!inJobAction && !g_assetData.v_assetContainers.empty())
     {
@@ -754,7 +652,7 @@ void HandleRenderFrame()
                 {
                     const bool multipleAssetsSelected = selectedAssets.size() > 1;
 
-                    if (ImGui::Selectable("Export selected"))
+                    if (ImGui::Selectable(multipleAssetsSelected ? "Export selected assets" : "Export selected asset"))
                     {
                         if (!selectedAssets.empty())
                         {
@@ -827,7 +725,7 @@ void HandleRenderFrame()
                     }
 
                     // Exports the names of all assets in the currently shown filtered asset list (i.e., search results)
-                    if (ImGui::Selectable("Export list of assets"))
+                    if (ImGui::Selectable("Export list of assets..."))
                     {
                         CThread(HandleListExportPakAssets, g_dxHandler->GetWindowHandle(), &pakAssets).detach();
                     }
@@ -837,9 +735,8 @@ void HandleRenderFrame()
                 ImGui::EndMenuBar();
             }
 
-            const bool filterInputChanged = FilterConfig->textFilter.Draw("##Filter", -1.f);
-            const bool appliedFilterResults = ConsumeCompletedAssetFilterResults(filteredAssets, lastAppliedFilterJobId, lastAppliedFilterText);
-            if (appliedFilterResults)
+            // OR case if we load a pak and the filter is not cleared yet.
+            if (FilterConfig->textFilter.Draw("##Filter", -1.f) || (filteredAssets.empty() && FilterConfig->textFilter.IsActive()) || prevAssetCount != g_assetData.v_assets.size())
             {
                 lastSubmittedAssetCountSnapshot = g_assetData.v_assets.size();
                 lastSubmittedFilterText = lastAppliedFilterText;
@@ -859,9 +756,24 @@ void HandleRenderFrame()
 
                 if ((filterTextChanged || filterNeverSubmitted || assetsChangedSinceSubmission || resultsMissing) && !currentFilterText.empty())
                 {
-                    lastSubmittedFilterText = currentFilterText;
-                    lastSubmittedAssetCountSnapshot = g_assetData.v_assets.size();
-                    SubmitAsyncAssetFilterJob(currentFilterText);
+                    const std::string& assetName = it.m_asset->GetAssetName();
+
+                    if (FilterConfig->textFilter.PassFilter(assetName.c_str()))
+                        filteredAssets.push_back(it);
+                    else
+                    {
+                        const char* const inputText = FilterConfig->textFilter.inputBuf.c_str();
+                        const size_t inputLen = FilterConfig->textFilter.inputBuf.size();
+
+                        char* end;
+                        const uint64_t guid = strtoull(inputText, &end, 0);
+
+                        if (end == &inputText[inputLen])
+                        {
+                            if (guid == RTech::StringToGuid(assetName.c_str()))
+                                filteredAssets.push_back(it);
+                        }
+                    }
                 }
 
                 if (awaitingResults || g_AsyncAssetFilterState.runningJobs.load() > 0)
@@ -1038,8 +950,8 @@ void HandleRenderFrame()
 
             ImGui::Separator();
 
-            ImGui::Dummy(ImVec2(0.0f, 5.0f));
-
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
+            ImGui::Dummy(ImVec2(0, 0));
             if (firstAsset)
             {
 
@@ -1053,6 +965,7 @@ void HandleRenderFrame()
 
                         previewDrawData = reinterpret_cast<CDXDrawData*>(it->second.previewFunc(static_cast<CPakAsset*>(firstAsset), firstFrameForAsset));
                         prevRenderInfoAsset = firstAsset;
+
                     }
                     else
                     {
@@ -1073,140 +986,24 @@ void HandleRenderFrame()
         ImGui::End();
     }
 
-    constexpr uint32_t minThreads = 1u;
-
     if (uiState.settingsWindowVisible)
-    {
-        ImGui::SetNextWindowSize(ImVec2(0.f, 0.f), ImGuiCond_Always);
-        if (ImGui::Begin("Settings", &uiState.settingsWindowVisible, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize))
-        {
-            // ===============================================================================================================
-            ImGui::SeparatorText("Export");
+        DrawSettingsWindow(&uiState);
 
-            ImGui::Checkbox("Export full asset paths", &g_ExportSettings.exportPathsFull);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Enables exporting of assets to their full path within the export directory, as shown by the listed asset names.\nWhen disabled, assets will be exported into the root-level of a folder named after the asset's type (e.g. \"material/\",\"ui_image/\").");
-            
-            ImGui::Checkbox("Export asset dependencies", &g_ExportSettings.exportAssetDeps);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Enables exporting of all dependencies that are associated with any asset that is being exported.");
-            ImGui::Checkbox("Disable CacheDB names", &g_ExportSettings.disableCachedNames);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Disables loading names from the cache file, new names will still be added.");
+#if defined(HAS_ITEMFLAV_WINDOW)
+    if (uiState.itemflavWindowVisible)
+        ItemflavWindow_Draw(&uiState);
+#endif
 
-            // texture settings
-            ImGui::SeparatorText("Export (Textures)");
-
-            ImGui::Combo("Material Texture Names", reinterpret_cast<int*>(&g_ExportSettings.exportTextureNameSetting), s_TextureExportNameSetting, static_cast<int>(ARRAYSIZE(s_TextureExportNameSetting)));
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Naming scheme for exporting textures via materials options are as follows:\nGUID: exports only using the asset's GUID as a name.\nReal: exports texture using a real name (asset name or guid if no name).\nText: exports the texture with a text name always, generating one if there is none provided.\nSemantic: exports with a generated name all the time, useful for models.");
-
-            ImGui::Combo("Normal Recalc", reinterpret_cast<int*>(&g_ExportSettings.exportNormalRecalcSetting), s_NormalExportRecalcSetting, static_cast<int>(ARRAYSIZE(s_NormalExportRecalcSetting)));
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("None: exports the normal as it is stored.\nDirectX: exports with a generated blue channel.\nOpenGL: exports with a generated blue channel and inverts the green channel.");
-
-            ImGui::Checkbox("Export Material Textures", &g_ExportSettings.exportMaterialTextures);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Enables exporting of all textures that are associated with any material asset that is being exported.");
-
-            // model settings
-            ImGui::SeparatorText("Export (Models)");
-
-            ImGui::Checkbox("Export Sequences", &g_ExportSettings.exportRigSequences);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Enables exporting of all animation sequences that are associated with any rig or model asset that is being exported.");
-
-            ImGui::Checkbox("Export Skin", &g_ExportSettings.exportModelSkin);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Enables exporting a model with the previewed skin.");
-
-            ImGui::Checkbox("Truncate Materials", &g_ExportSettings.exportModelMatsTruncated);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Truncates material names on SMD.");
-
-            ImGui::Checkbox("Enable QCI Files", &g_ExportSettings.exportQCIFiles);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("QC file will be split into multiple include files.");
-
-            ImGui::PushItemWidth(48.0f);
-            ImGui::InputScalar("##QCTargetMajor", ImGuiDataType_U16, reinterpret_cast<uint16_t*>(&g_ExportSettings.qcMajorVersion), nullptr, nullptr, "%u", ImGuiInputTextFlags_CharsDecimal);
-            ImGui::SameLine();
-            ImGui::InputScalar("##QCTargetMinor", ImGuiDataType_U16, reinterpret_cast<uint16_t*>(&g_ExportSettings.qcMinorVersion), nullptr, nullptr, "%u", ImGuiInputTextFlags_CharsDecimal);
-            ImGui::PopItemWidth();
-            ImGui::SameLine();
-            ImGui::Text("QC Target Version");
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Desired version for QC files to be compatible with.");
-
-            // physics settings
-            ImGui::InputInt("Physics contents filter", reinterpret_cast<int*>(&g_ExportSettings.exportPhysicsContentsFilter), 1, 100, ImGuiInputTextFlags_CharsHexadecimal);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Filter physics meshes in or out based on selected contents.");
-
-            ImGui::Checkbox("Physics contents filter exclusive", &g_ExportSettings.exportPhysicsFilterExclusive);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Exclude physics meshes containing any of the specified contents.");
-
-            ImGui::Checkbox("Physics contents filter require all", &g_ExportSettings.exportPhysicsFilterAND);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Filter only physics meshes containing all specified contents.");
-
-            // ===============================================================================================================
-            ImGui::SeparatorText("Parsing");
-
-            ImGui::Combo("Compression Level", reinterpret_cast<int*>(&UtilsConfig->compressionLevel), s_CompressionLevelSetting, static_cast<int>(ARRAYSIZE(s_CompressionLevelSetting)));
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Specifies the compression level used when storing parsed assets in memory.\nWARNING: Modify only if you know what you�re doing; otherwise, you may run out of memory.\nNone: no compression.\nSuper Fast: Fastest level with the lowest compression ratio.\nVery Fast: Standard setting; fastest level with a decent compression ratio.\nFast: Fastest level with a good compression ratio.\nNormal: Standard LZ speed with the highest compression ratio.");
-
-            ImGui::SliderScalar("Parse Threads", ImGuiDataType_U32, &UtilsConfig->parseThreadCount, &minThreads, reinterpret_cast<int*>(&maxConcurrentThreads));
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("The number of CPU threads that will be used for loading files.\n\nIn general, the higher the number, the faster RSX will be able to load the selected files.");
-
-            ImGui::SliderScalar("Export Threads", ImGuiDataType_U32, &UtilsConfig->exportThreadCount, &minThreads, reinterpret_cast<int*>(&maxConcurrentThreads));
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("The number of CPU threads that will be used for exporting assets.\n\nA higher number of threads will usually make RSX export assets more quickly, however the increased disk usage may cause decreased performance.");
-
-            // ===============================================================================================================
-            ImGui::SeparatorText("Preview");
-
-            ImGui::SliderFloat("Cull Distance", &g_PreviewSettings.previewCullDistance, PREVIEW_CULL_MIN, PREVIEW_CULL_MAX);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Distance at which render of 3D objects will stop. Note: only updated on startup.\n"); // todo: recreate projection matrix ?
-
-            ImGui::SliderFloat("Movement Speed", &g_PreviewSettings.previewMovementSpeed, PREVIEW_SPEED_MIN, PREVIEW_SPEED_MAX);
-            ImGui::SameLine();
-            g_pImGuiHandler->HelpMarker("Speed at which the camera moves through the 3D scene.\n");
-            
-            // ===============================================================================================================
-            ImGui::SeparatorText("Export Formats");
-
-            for (auto& it : g_assetData.m_assetTypeBindings)
-            {
-                if (it.second.e.exportSettingArr)
-                {
-                    ImGui::Combo(fourCCToString(it.first).c_str(), &it.second.e.exportSetting, it.second.e.exportSettingArr, static_cast<int>(it.second.e.exportSettingArrSize));
-                }
-            }
-
-            ImGui::End();
-        }
-    }
+#if defined(HAS_LOG_WINDOW)
+    if (uiState.logWindowVisible)
+        LogWindow_Draw(&uiState);
+#endif
 
     g_pImGuiHandler->HandleProgressBar();
 
     ImDrawList* bgDrawList = ImGui::GetBackgroundDrawList();
     if (previewDrawData)
     {
-        //const CDXCamera* camera = g_dxHandler->GetCamera();
-        //bgDrawList->AddText(
-        //    ImGui::GetFont(), 15.f,
-        //    ImVec2(10, 20), 0xFFFFFFFF,
-        //    std::format("pos: {:.3f} {:.3f} {:.3f}\nrot: {:.3f} {:.3f} {:.3f}",
-        //        camera->position.x, camera->position.y, camera->position.z,
-        //        camera->rotation.x, camera->rotation.y, camera->rotation.z
-        //    ).c_str());
-        //bgDrawList->AddText(ImGui::GetFont(), 20.f, ImVec2(10, 50), 0xFF0000FF, previewDrawData->modelName);
-
         bgDrawList->AddText(
             ImGui::GetFont(), 15.f,
             ImVec2(10, 20), 0xFFFFFFFF,
@@ -1214,17 +1011,29 @@ void HandleRenderFrame()
     }
 
     ImGui::Render();
+
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
     }
 
+    // Preview rendering
+    ID3D11Device* const device = g_dxHandler->GetDevice();
+    CDXScene& scene = g_dxHandler->GetScene();
+    ID3D11DeviceContext* const ctx = g_dxHandler->GetDeviceContext();
+
+#if !defined(ADVANCED_MODEL_PREVIEW)
+    UNUSED(device);
+    UNUSED(scene);
+#endif
+
     ID3D11RenderTargetView* const mainView = g_dxHandler->GetMainView();
     static constexpr float clear_color_with_alpha[4] = { 0.01f, 0.01f, 0.01f, 1.00f };
-    g_dxHandler->GetDeviceContext()->OMSetRenderTargets(1, &mainView, g_dxHandler->GetDepthStencilView());
-    g_dxHandler->GetDeviceContext()->ClearRenderTargetView(mainView, clear_color_with_alpha);
-    g_dxHandler->GetDeviceContext()->ClearDepthStencilView(g_dxHandler->GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1, 0);
+
+    ctx->OMSetRenderTargets(1, &mainView, g_dxHandler->GetDepthStencilView());
+    ctx->ClearRenderTargetView(mainView, clear_color_with_alpha);
+    ctx->ClearDepthStencilView(g_dxHandler->GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1, 0);
 
     LONG width = 0ul;
     LONG height = 0ul;
@@ -1236,62 +1045,45 @@ void HandleRenderFrame()
         static_cast<float>(height),
         0, 1
     };
-    ID3D11Device* const device = g_dxHandler->GetDevice();
-    ID3D11DeviceContext* const ctx = g_dxHandler->GetDeviceContext();
 
-#if !defined(ADVANCED_MODEL_PREVIEW)
-    UNUSED(device);
-#endif
-
-    g_dxHandler->GetDeviceContext()->RSSetViewports(1u, &vp);
-    g_dxHandler->GetDeviceContext()->RSSetState(g_dxHandler->GetRasterizerState());
-    g_dxHandler->GetDeviceContext()->OMSetDepthStencilState(g_dxHandler->GetDepthStencilState(), 1u);
+    ctx->RSSetViewports(1u, &vp);
+    ctx->RSSetState(g_dxHandler->GetRasterizerState());
+    ctx->OMSetDepthStencilState(g_dxHandler->GetDepthStencilState(), 1u);
 
 #if defined(ADVANCED_MODEL_PREVIEW)
+    // Update CBufCommonPerCamera
     g_dxHandler->GetCamera()->CommitCameraDataBufferUpdates();
 
-    CDXScene& scene = g_dxHandler->GetScene();
-
-    if (scene.globalLights.size() == 0)
-    {
-        HardwareLight& light = scene.globalLights.emplace_back();
-
-        light.pos = { 0, 10.f, 0 };
-        light.rcpMaxRadius = 1 / 100.f;
-        light.rcpMaxRadiusSq = 1 / (light.rcpMaxRadius * light.rcpMaxRadius);
-        light.attenLinear = -1.95238f;
-        light.attenQuadratic = 0.95238f;
-        light.specularIntensity = 1.f;
-        light.color = { 1.f, 1.f, 1.f };
-    }
+    scene.UpdateHardwareLights();
+    scene.UpdateCubemapSamples();
 
     if (scene.NeedsLightingUpdate())
-        g_dxHandler->GetScene().CreateOrUpdateLights(device, ctx);
+        scene.MapAndUpdateLightBuffer(device, ctx);
+
+    if (scene.NeedsCubemapSmpUpdate())
+        scene.MapAndUpdateCubemapSamplesBuffer(device, ctx);
 #endif
+
+
 
     if (previewDrawData)
     {
+        previewDrawData->SetPSResource(PSRSRC_CUBEMAP, g_dxHandler->GetCubemapSRV());
+        previewDrawData->SetPSResource(PSRSRC_CSMDEPTHATLASSAMPLER, g_dxHandler->GetCSMDepthAtlasSamplerSRV());
+        previewDrawData->SetPSResource(PSRSRC_SHADOWMAP, g_dxHandler->GetShadowMapSRV());
+        previewDrawData->SetPSResource(PSRSRC_CLOUDMASK, g_dxHandler->GetCloudMaskSRV());
+        previewDrawData->SetPSResource(PSRSRC_STATICSHADOWTEXTURE, g_dxHandler->GetStaticShadowTexSRV());
+        
         CDXCamera* const camera = g_dxHandler->GetCamera();
 
-        if (previewDrawData->vertexShader && previewDrawData->pixelShader)
-        {
-            CShader* vertexShader = previewDrawData->vertexShader;
-            CShader* pixelShader = previewDrawData->pixelShader;
 
+        if (previewDrawData->vertexShader && previewDrawData->pixelShader) LIKELY
+        {
             ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-            ctx->IASetInputLayout(vertexShader->GetInputLayout());
-
-            if (vertexShader)
-                ctx->VSSetShader(vertexShader->Get<ID3D11VertexShader>(), nullptr, 0u);
-
-            if (pixelShader)
-                ctx->PSSetShader(pixelShader->Get<ID3D11PixelShader>(), nullptr, 0u);
-
             assertm(previewDrawData->transformsBuffer, "uh oh something very bad happened!!!!!!");
-            ID3D11Buffer* const transformsBuffer = previewDrawData->transformsBuffer;
 
-            ctx->VSSetConstantBuffers(0u, 1u, &transformsBuffer);
+            ctx->VSSetConstantBuffers(0u, 1u, &previewDrawData->transformsBuffer); // VS_TransformConstants/CBufModelInstance
 
             UINT offset = 0u;
 
@@ -1299,59 +1091,47 @@ void HandleRenderFrame()
             {
                 const DXMeshDrawData_t& meshDrawData = previewDrawData->meshBuffers[i];
 
-                // if this mesh is not visible, don't draw it!
-                if (!meshDrawData.visible)
+                if (!meshDrawData.visible || !meshDrawData.vertexShader || !meshDrawData.pixelShader)
                     continue;
 
-                if (meshDrawData.doFrustumCulling)
-                {
-                    // todo
-                }
+                assertm(meshDrawData.vertexShader != nullptr, "No vertex shader?");
+                assertm(meshDrawData.pixelShader  != nullptr, "No pixel shader?");
 
-#if defined(ADVANCED_MODEL_PREVIEW)
-                const bool useAdvancedModelPreview = meshDrawData.vertexShader && meshDrawData.pixelShader;
-#else
-                constexpr bool useAdvancedModelPreview = false;
-#endif
+                ctx->IASetInputLayout(meshDrawData.inputLayout);
+                ctx->VSSetShader(meshDrawData.vertexShader, nullptr, 0u);
 
                 ID3D11Buffer* sharedConstBuffers[] = {
-                    camera->bufCommonPerCamera,
-                    previewDrawData->transformsBuffer,
+                    camera->bufCommonPerCamera,        // CBufCommonPerCamera - b2
+                    previewDrawData->modelInstanceBuffer, // CBufModelInstance - b3
                 };
-
-                if (meshDrawData.vertexShader)
-                {
-                    ctx->IASetInputLayout(meshDrawData.inputLayout);
-                    ctx->VSSetShader(meshDrawData.vertexShader, nullptr, 0u);
-                }
-                else
-                    ctx->VSSetShader(vertexShader->Get<ID3D11VertexShader>(), nullptr, 0u);
-
-                // if we have a custom vertex shader and/or pixel shader for this mesh from the draw data, use it
-                // otherwise we can fall back on the base shaders
-                if (useAdvancedModelPreview)
-                {
-                    ctx->VSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
-
-                    ctx->VSSetShaderResources(60u, 1u, &previewDrawData->boneMatrixSRV);
-                    ctx->VSSetShaderResources(62u, 1u, &previewDrawData->boneMatrixSRV);
-                }
 
                 for (auto& rsrc : previewDrawData->vertexShaderResources)
                 {
-                    ctx->VSSetShaderResources(rsrc.bindPoint, 1u, &rsrc.resourceView);
+                    ctx->VSSetShaderResources(rsrc.first, 1u, &rsrc.second);
+                }
+
+                // [AMP]
+                if (meshDrawData.hasGameShaders)
+                {
+                    // VertexShader: CBufCommonPerCamera, CBufModelInstance
+                    ctx->VSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
+
+                    // VertexShader: g_boneMatrix, g_boneMatrixPrevFrame
+                    ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX, 1u, &previewDrawData->boneMatrixSRV);
+                    ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX_PREV_FRAME, 1u, &previewDrawData->boneMatrixSRV);
                 }
 
                 ctx->IASetVertexBuffers(0u, 1u, &meshDrawData.vertexBuffer, &meshDrawData.vertexStride, &offset);
+                // ==============================================================================
 
-                if (meshDrawData.pixelShader)
-                    ctx->PSSetShader(meshDrawData.pixelShader, nullptr, 0u);
-                else
-                    ctx->PSSetShader(pixelShader->Get<ID3D11PixelShader>(), nullptr, 0u);
+                assertm(meshDrawData.pixelShader != nullptr, "No pixel shader?");
+                   
+                ctx->PSSetShader(meshDrawData.pixelShader, nullptr, 0u);
 
                 ID3D11SamplerState* const samplerState = g_dxHandler->GetSamplerState();
 
-                if (useAdvancedModelPreview)
+                // [AMP] Samplers, Lights, CBufs
+                if (meshDrawData.hasGameShaders)
                 {
                     ID3D11SamplerState* samplers[] = {
                         g_dxHandler->GetSamplerComparisonState(),
@@ -1362,15 +1142,23 @@ void HandleRenderFrame()
 
                     if (meshDrawData.uberStaticBuf)
                         ctx->PSSetConstantBuffers(0u, 1u, &meshDrawData.uberStaticBuf);
+
+                    if (meshDrawData.uberDynamicBuf)
+                        ctx->PSSetConstantBuffers(1u, 1u, &meshDrawData.uberDynamicBuf);
+
+
+                    // PixelShader: CBufCommonPerCamera, CBufModelInstance
                     ctx->PSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
 
-#if defined(ADVANCED_MODEL_PREVIEW)
-                    scene.BindLightsSRV(ctx);
-#endif
+                    // PixelShader: s_globalLights
+                    ctx->PSSetShaderResources(PSRSRC_GLOBAL_LIGHTS, 1u, &scene.globalLightsSRV);
+                    ctx->PSSetShaderResources(PSRSRC_CUBEMAP_SAMPLES, 1u, &scene.cubemapSamplesSRV);
                 }
                 else
                     ctx->PSSetSamplers(0, 1, &samplerState);
 
+
+                // Bind texture resources for this mesh's material
                 for (auto& tex : meshDrawData.textures)
                 {
                     ID3D11ShaderResourceView* const textureSRV = tex.texture
@@ -1380,20 +1168,21 @@ void HandleRenderFrame()
                     ctx->PSSetShaderResources(tex.resourceBindPoint, 1u, &textureSRV);
                 }
 
+                // Bind pixel shader resources
                 for (auto& rsrc : previewDrawData->pixelShaderResources)
                 {
-                    ctx->PSSetShaderResources(rsrc.bindPoint, 1u, &rsrc.resourceView);
+                    ctx->PSSetShaderResources(rsrc.first, 1u, &rsrc.second);
                 }
 
+                // ==============================================================================
                 ctx->IASetIndexBuffer(meshDrawData.indexBuffer, meshDrawData.indexFormat, 0u);
                 ctx->DrawIndexed(static_cast<UINT>(meshDrawData.numIndices), 0u, 0u);
             }
         }
-        else
-        {
-            assertm(0, "Failed to load shaders for model preview.");
-        }
+        else assertm(0, "Failed to load shaders for model preview.");
     }
+
+    prevAssetCount = g_assetData.v_assets.size();
 
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 

@@ -45,6 +45,7 @@ void LoadShaderAsset(CAssetContainer* pak, CAsset* asset)
 	}
 	case 15:
 	case 16:
+	case 17:
 	{
 		// [rika]: switch headerStructSize == 48, switch shaders in general are very odd
 		assertm(pakAsset->data()->headerStructSize == sizeof(ShaderAssetHeader_v15_t), "incorrect header");
@@ -92,7 +93,8 @@ void LoadShaderAsset(CAssetContainer* pak, CAsset* asset)
 			name += ".rpak";
 
 		pakAsset->SetAssetName(name, true);
-	}
+	} else
+		pakAsset->SetAssetNameFromCache();
 
 	pakAsset->setExtraData(shaderAsset);
 }
@@ -314,7 +316,7 @@ void PostLoadShaderAsset(CAssetContainer* const pak, CAsset* const asset)
 	}
 #endif
 
-	ShaderAsset* const shaderAsset = reinterpret_cast<ShaderAsset*>(pakAsset->extraData());
+	ShaderAsset* const shaderAsset = pakAsset->extraData<ShaderAsset* const>();
 
 	if (shaderAsset->numShaders != -1)
 	{
@@ -459,19 +461,14 @@ void PostLoadShaderAsset(CAssetContainer* const pak, CAsset* const asset)
 	}
 	}
 
-	if(shaderAsset->type == eShaderType::Vertex)
+	if(shaderAsset->type == eShaderType::Vertex && shaderAsset->inputFlags)
 		shaderAsset->vertexInputLayout = Shader_CreateInputLayoutFromFlags(shaderAsset->inputFlags[0], shaderAsset->data, shaderAsset->dataSize);
 
 	if (FAILED(hr))
 	{
-		Log("failed to create %s shader for asset %s (0x%08X)\n", GetShaderTypeName(shaderAsset->type), asset->name().c_str(), hr);
+		Log("failed to create %s shader for asset %s (0x%08X)\n", GetShaderTypeName(shaderAsset->type), asset->GetAssetName().c_str(), hr);
 	}
 #endif
-
-	if(!shaderAsset->name)
-	{
-		pakAsset->SetAssetNameFromCache();
-	}
 }
 
 void* PreviewShaderAsset(CAsset* const asset, const bool firstFrameForAsset)
@@ -480,8 +477,7 @@ void* PreviewShaderAsset(CAsset* const asset, const bool firstFrameForAsset)
 
 	CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
 
-	const ShaderAsset* const shaderAsset = reinterpret_cast<ShaderAsset*>(pakAsset->extraData());
-	assertm(shaderAsset, "Extra data should be valid at this point.");
+	const ShaderAsset* const shaderAsset = pakAsset->extraData<const ShaderAsset* const>();
 
 	ImGui::Text("Features: %016X", *(uint64_t*)shaderAsset->shaderFeatures);
 
@@ -670,35 +666,24 @@ bool ExportShaderAsset(CAsset* const asset, const int setting)
 {
 	CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
 
-	const ShaderAsset* const shaderAsset = reinterpret_cast<ShaderAsset*>(pakAsset->extraData());
+	// [rexx]: SHDR v17 is temporarily disabled for export since it seems to be a little bit messed up
+	if (pakAsset->version() == 17)
+		return false;
+
+
+	const ShaderAsset* const shaderAsset = pakAsset->extraData<const ShaderAsset* const>();
 	assertm(shaderAsset, "Extra asset data should be valid at this point.");
 
 	// shaders with no data/invalid type need to be skipped until we properly handle them
 	if (shaderAsset->type >= eShaderType::Invalid)
 	{
-		Log("Tried to export a shader with invalid shader type, skipping...\n");
+		Log("Tried to export %s with invalid shader type, skipping...\n", asset->GetAssetName().c_str());
 		return false;
 	}
 
 	// Create exported path + asset path.
-	std::filesystem::path exportPath = std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME);
-
-	const auto isShaderAsset = [](const CAsset* candidate)
-	{
-		return candidate && candidate->GetAssetType() == static_cast<uint32_t>(AssetType_t::SHDR);
-	};
-
-	const CAsset* const parentAsset = GetCurrentExportParentAsset();
-	const CAsset* const rootAsset = GetCurrentExportRootAsset();
-	const CAsset* aliasAsset = nullptr;
-
-	if (parentAsset != asset && isShaderAsset(parentAsset))
-		aliasAsset = parentAsset;
-	else if (rootAsset != asset && isShaderAsset(rootAsset))
-		aliasAsset = rootAsset;
-
-	const CAsset* const namingAsset = aliasAsset ? aliasAsset : asset;
-	const std::filesystem::path namingPath(namingAsset->GetAssetName());
+	std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory();
+	const std::filesystem::path shaderPath(asset->GetAssetName());
 
 	if (g_ExportSettings.exportPathsFull)
 	{
@@ -741,25 +726,9 @@ bool ExportShaderAsset(CAsset* const asset, const int setting)
 	unreachable();
 }
 
-void InitShaderAssetType()
-{
-	static const char* settings[] = { "Raw", "MSW" };
-	AssetTypeBinding_t type =
-	{
-		.type = 'rdhs',
-		.headerAlignment = 8,
-		.loadFunc = LoadShaderAsset,
-		.postLoadFunc = PostLoadShaderAsset,
-		.previewFunc = PreviewShaderAsset,
-		.e = { ExportShaderAsset, 0, settings, ARRSIZE(settings) },
-	};
-
-	REGISTER_TYPE(type);
-}
-
 std::map<uint32_t, ShaderResource> ResourceBindingFromDXBlob(CPakAsset* const asset, D3D_SHADER_INPUT_TYPE inputType)
 {
-	const ShaderAsset* const shaderAsset = reinterpret_cast<ShaderAsset*>(asset->extraData());
+	const ShaderAsset* const shaderAsset = asset->extraData<const ShaderAsset* const>();
 	assertm(shaderAsset, "Extra asset data should be valid at this point.");
 
 	std::map<uint32_t, ShaderResource> bindings;
@@ -798,7 +767,7 @@ std::map<uint32_t, ShaderResource> ResourceBindingFromDXBlob(CPakAsset* const as
 
 std::vector<TmpConstBufVar> ConstBufVarFromDXBlob(CPakAsset* const asset, const char* constBufName)
 {
-	const ShaderAsset* const shaderAsset = reinterpret_cast<ShaderAsset*>(asset->extraData());
+	const ShaderAsset* const shaderAsset = asset->extraData<const ShaderAsset* const>();
 	assertm(shaderAsset, "Extra asset data should be valid at this point.");
 
 	std::vector<TmpConstBufVar> vars;
@@ -841,4 +810,21 @@ std::vector<TmpConstBufVar> ConstBufVarFromDXBlob(CPakAsset* const asset, const 
 	}
 
 	return vars;
+}
+
+void InitShaderAssetType()
+{
+	static const char* settings[] = { "Raw", "MSW" };
+	AssetTypeBinding_t type =
+	{
+		.name = "Shader",
+		.type = 'rdhs',
+		.headerAlignment = 8,
+		.loadFunc = LoadShaderAsset,
+		.postLoadFunc = PostLoadShaderAsset,
+		.previewFunc = PreviewShaderAsset,
+		.e = { ExportShaderAsset, 0, settings, ARRSIZE(settings) },
+	};
+
+	REGISTER_TYPE(type);
 }

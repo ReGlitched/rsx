@@ -44,10 +44,8 @@ bool CMilesAudioBank::IsValidSource(const MilesSource_t* source) const
 
 void CMilesAudioBank::DiscoverStreamingFiles()
 {
-	const std::filesystem::path filePath(m_filePath);
-
-	assert(filePath.has_parent_path());
-	std::filesystem::path dirPath = filePath.parent_path();
+	assert(GetFilePath().has_parent_path());
+	std::filesystem::path dirPath = GetFilePath().parent_path();
 
 	this->m_streamStates = 0;
 
@@ -190,6 +188,49 @@ const bool CMilesAudioBank::ParseFromHeader()
 
 		break;
 	}
+	case 48: // Apex Season 27.1.x 2025_12_05_16_29, released 06/01/2026
+	{
+		this->languageCount = 10;
+		this->m_languageNames = {
+			"english", "french", "german", "spanish", "italian",
+			"japanese", "polish", "russian", "mandarin", "korean"
+		};
+
+		const MilesBankHeader_v45_t* const header = reinterpret_cast<MilesBankHeader_v45_t*>(m_fileBuf.get());
+
+		this->Construct(header);
+
+		this->DiscoverStreamingFiles();
+
+		const MilesSource_v48_t* const sourceArray = reinterpret_cast<MilesSource_v48_t*>(this->audioSources);
+
+		const size_t sourceNameOffsetDifference = sourceArray[0].nameOffset; // this assumes that the first source's name is always at offset 0. This is Not Good.
+
+		Log("MBNK: Parsing sources...\n");
+		for (uint32_t i = 0; i < this->sourceCount; ++i)
+		{
+			const MilesSource_v48_t* const source = &sourceArray[i];
+			MilesSource_t* const sourceAssetData = new MilesSource_t(source);
+
+			if (!IsValidSource(sourceAssetData))
+				continue;
+
+			const char* sourceNameStringTable = reinterpret_cast<char*>(this->audioSources) + (sizeof(MilesSource_v48_t) * this->sourceCount);
+
+			const char* const sourceName = sourceNameStringTable + (source->nameOffset - sourceNameOffsetDifference);
+
+			CMilesAudioAsset* sourceAsset = new CMilesAudioAsset(sourceName, sourceAssetData, this);
+			sourceAsset->SetAssetType((uint32_t)AssetType_t::ASRC); // asrc - audio source
+			sourceAsset->SetAssetGUID(RTech::StringToGuid(sourceName));
+			sourceAsset->SetAssetVersion({ m_version });
+
+			sourceAsset->SetContainerName(GetStreamingFileNameForSource(sourceAssetData));
+
+			g_assetData.v_assets.push_back({ sourceAsset->GetAssetGUID(), sourceAsset });
+		}
+
+		break;
+	}
 	default:
 		return false;
 	}
@@ -201,7 +242,7 @@ const bool CMilesAudioBank::ParseFile(const std::string& path)
 {
 	Log("MBNK: Trying to load file: %s\n", path.c_str());
 
-	m_filePath = path;
+	SetFilePath(path);
 
 	if (!FileSystem::ReadFileData(path, &m_fileBuf))
 		return false;
@@ -266,7 +307,7 @@ bool ExportAudioSourceAsset(CAsset* const asset, const int setting)
 	CMilesAudioBank* audioBank = asset->GetContainerFile<CMilesAudioBank>();
 
 	// Create exported path + asset path.
-	std::filesystem::path exportPath = std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME);
+	std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory();// std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME);
 	const std::filesystem::path asrcPath(audioAsset->GetAssetName());
 
 	// truncate paths?
@@ -506,6 +547,7 @@ void InitAudioSourceAssetType()
 {
 	AssetTypeBinding_t type =
 	{
+		.name = "Audio Source",
 		.type = 'crsa',
 		.headerAlignment = 1,
 		.loadFunc = nullptr,

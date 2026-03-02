@@ -30,17 +30,8 @@ void LoadRSONAsset(CAssetContainer* const container, CAsset* const asset)
     rootNode.R_ParseNodeValues(out, 0); // store raw text so we can preview or export it
     rsonAsset->rawText = out.str();
 
-    pakAsset->setExtraData(rsonAsset);
-}
-
-void PostLoadRSONAsset(CAssetContainer* const container, CAsset* const asset)
-{
-	UNUSED(container);
-
-	CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
-
-	// [rika]: has no name var
 	pakAsset->SetAssetNameFromCache();
+	pakAsset->setExtraData(rsonAsset);
 }
 
 void* PreviewRSONAsset(CAsset* const asset, const bool firstFrameForAsset)
@@ -49,8 +40,7 @@ void* PreviewRSONAsset(CAsset* const asset, const bool firstFrameForAsset)
 
 	CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
 
-    const RSONAsset* const rsonAsset = reinterpret_cast<RSONAsset*>(pakAsset->extraData());
-    assertm(rsonAsset, "Extra data should be valid at this point.");
+    const RSONAsset* const rsonAsset = pakAsset->extraData<const RSONAsset* const>();
 
     ImGui::Text("Root node type: 0x%x", rsonAsset->type);
 
@@ -70,11 +60,10 @@ bool ExportRSONAsset(CAsset* const asset, const int setting)
 
 	CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
 
-    const RSONAsset* const rsonAsset = reinterpret_cast<RSONAsset*>(pakAsset->extraData());
-    assertm(rsonAsset, "Extra data should be valid at this point.");
+    const RSONAsset* const rsonAsset = pakAsset->extraData<const RSONAsset* const>();
 
     // Create exported path + asset path.
-	std::filesystem::path exportPath = std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME);
+	std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory();
 	const std::filesystem::path rsonPath(asset->GetAssetName());
 
 	if (g_ExportSettings.exportPathsFull)
@@ -102,21 +91,6 @@ bool ExportRSONAsset(CAsset* const asset, const int setting)
     out.close();
 
     return true;
-}
-
-void InitRSONAssetType()
-{
-    AssetTypeBinding_t type =
-    {
-		.type = 'nosr',
-		.headerAlignment = 8,
-		.loadFunc = LoadRSONAsset,
-		.postLoadFunc = PostLoadRSONAsset,
-		.previewFunc = PreviewRSONAsset,
-		.e = { ExportRSONAsset, 0, nullptr, 0ull },
-    };
-
-    REGISTER_TYPE(type);
 }
 
 // recursively parses all node values out of the rson node tree into our stringstream
@@ -295,4 +269,21 @@ void WriteRSONDependencyArray(std::ofstream& out, const char* const name, const 
     }
 
     out << "]\n";
+}
+
+
+void InitRSONAssetType()
+{
+	AssetTypeBinding_t type =
+	{
+		.name = "RSON",
+		.type = 'nosr',
+		.headerAlignment = 8,
+		.loadFunc = LoadRSONAsset,
+		.postLoadFunc = nullptr,
+		.previewFunc = PreviewRSONAsset,
+		.e = { ExportRSONAsset, 0, nullptr, 0ull },
+	};
+
+	REGISTER_TYPE(type);
 }

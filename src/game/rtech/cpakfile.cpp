@@ -9,7 +9,14 @@
 
 #include <game/rtech/utils/utils.h>
 #include <game/rtech/utils/zstd_loader.h>
+
+#ifndef RTECH_STATIC_LIB
 #include <thirdparty/imgui/misc/imgui_utility.h>
+
+#define PARSE_THREAD_COUNT UtilsConfig->parseThreadCount
+#else
+#define PARSE_THREAD_COUNT 1
+#endif
 
 //CGlobalPakData g_pakData;
 
@@ -55,13 +62,14 @@ struct PakFileLoadState_t
 
 const bool CPakFile::ParseFileBuffer(const std::string& path)
 {
-    Log("RSX: ParseFileBuffer: starting for %s\n", path.c_str());
-    if (!ParseFromFile(path, this->m_Buf)) {
-        Log("RSX: ParseFileBuffer: ParseFromFile failed\n");
-        return false;
-    }
+    // Make sure that the pak instance always holds an absolute file path
+    if (!std::filesystem::path(path).is_absolute())
+        SetFilePath(std::filesystem::absolute(path));
+    else
+        SetFilePath(path);
 
-    m_FilePath = path;
+    if (!ParseFromFile(GetFilePath().string(), this->m_Buf))
+        return false;
 
     // parse our initial header (subject to change)
     if (!ParsePakFileHeader(m_Buf.get())) {
@@ -253,6 +261,7 @@ const bool CPakFile::LoadNonPatched()
 
     pageBuffers.resize(pageStart);
 
+
     // get a pointer for each page
     for (int i = pageStart; i < m_pHeader->numPages; ++i)
     {
@@ -314,10 +323,10 @@ const bool CPakFile::LoadAndPatchPakFileData()
 {
     if (g_assetData.m_pakLoadStatusMap.count(header()->crc) != 0)
     {
-        Log("Pakfile '%s' failed to load because its CRC was already recorded as being loaded.\n", m_FilePath.c_str());
+        Log("Pakfile '%s' failed to load because its CRC was already recorded as being loaded.\n", GetFilePath().c_str());
 
         return false;
-    }
+    }    
 
     // if this is not consistent across patches.. uhm?
     const short pakVersion = header()->version;
@@ -341,6 +350,7 @@ const bool CPakFile::LoadAndPatchPakFileData()
         ParsePatchEditStream(); // the uhhhhhhhhhhhhhhhhhh
     }
 
+
     PakFileLoadState_t* const topPatchFile = &pakChain.front();
     topPatchFile->fileBuffer = this->m_Buf;
     topPatchFile->pageStart  = this->firstPageIdx;
@@ -356,9 +366,8 @@ const bool CPakFile::LoadAndPatchPakFileData()
         if (pakPatchFileIndex != 0)
             snprintf(patchSuffix, sizeof(patchSuffix), "(%02d)", pakPatchFileIndex);
 
-        char patchFileName[256];
-        snprintf(patchFileName, sizeof(patchFileName), "%s%s.rpak", this->getPakStem().c_str(), patchSuffix);
-        std::filesystem::path patchFilePath = std::filesystem::path(this->m_FilePath).replace_filename(patchFileName);
+        const std::string patchSuffix = pakPatchFileIndex == 0 ? "" : std::format("({:02})", pakPatchFileIndex);
+        const std::filesystem::path patchFilePath = std::filesystem::path(GetFilePath()).replace_filename(std::format("{}{}.rpak", this->getPakStem(), patchSuffix));
 
         PakFileLoadState_t loadState = {};
         if (!ParseFromFile(patchFilePath.string(), loadState.fileBuffer)) {
@@ -405,10 +414,15 @@ const bool CPakFile::LoadAndPatchPakFileData()
     this->p.numBytesToPatch = header()->GetContainedPageDataSize();
 
     CreateHeaderSegmentCollection();
-    AllocateSegments();
+    if (!AllocateSegments())
+    {
+        g_assetData.Log_Error(this, "Failed segment allocation");
+        return false;
+    }
 
-    // loop until all pages have been patched correctly
-    // this might want a check to prevent infinitely looping
+    // Loop until all pages have been patched correctly.
+    // This has a fallback of 100 iterations just in case patching fails, so that we don't end up with an infinite loop
+    // So far, this has never happened, but we might as well make sure it never causes an issue if it does
     int numIterations = 0;
     while (!LoadAndPatchAssetData<PakAsset>())
     {
@@ -503,7 +517,7 @@ const bool CPakFile::LoadAndPatchPakFileData()
 const bool CPakFile::ParseFromFile(const std::string& filePath, std::shared_ptr<char[]>& buf)
 {
 #if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_LOG)
-    Log("parsing pak file from path: ('%s')\n", filePath.c_str());
+    Log("LOAD: parsing pak file from path: ('%s')\n", filePath.c_str());
 #endif // #if (PAKLOAD_DEBUG >= PAKLOAD_DEBUG_LOG)
 
     if (!FileSystem::ReadFileData(filePath, &buf))
@@ -524,7 +538,7 @@ const bool CPakFile::ParseStreamedFile(const std::string& fileName, bool opt)
         return false;
 
 #if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_LOG)
-    Log("parsing starpak file from path: ('%s')\n", fileName.c_str());
+    Log("LOAD: parsing starpak file from path: ('%s')\n", fileName.c_str());
 #endif // #if (PAKLOAD_DEBUG >= PAKLOAD_DEBUG_LOG)
 
     struct StarPakStreamEntry_t
@@ -534,13 +548,13 @@ const bool CPakFile::ParseStreamedFile(const std::string& fileName, bool opt)
     };
     std::unique_ptr<StarPak_t> pakEntry = std::make_unique<StarPak_t>();
 
-    std::string path = std::filesystem::path(m_FilePath).parent_path().string().append("\\" + fileName);
+    std::string path = std::filesystem::path(GetFilePath()).parent_path().string().append("\\" + fileName);
     pakEntry.get()->filePath = path;
 
     StreamIO file;
     if (!file.open(path, eStreamIOMode::Read))
     {
-        Log("failed to find starpak file '%s' on disk, assets may be missing data as a result...\n", fileName.c_str());
+        g_assetData.Log_Warning(this, "Failed to find StarPak file \"%s\" on disk. Assets may be missing data", fileName.c_str());
         return false;
     }
 
@@ -588,6 +602,7 @@ const bool CPakFile::DecompressFileBuffer(const char* fileBuffer, std::shared_pt
 
     if (header->magic != pakFileMagic)
     {
+        g_assetData.Log_Error(this, "Invalid pak magic (expected %08X, got %08X)", pakFileMagic, header->magic);
         delete header;
         return false;
     }
@@ -623,6 +638,7 @@ const bool CPakFile::DecompressFileBuffer(const char* fileBuffer, std::shared_pt
         }
         else
         {
+            g_assetData.Log_Error(this, "Failed to decompress pak file");
             delete header;
             return false;
         }
@@ -765,12 +781,19 @@ void CPakFile::CreateHeaderSegmentCollection()
     }
 }
 
-void CPakFile::AllocateSegments()
+bool CPakFile::AllocateSegments()
 {
     // for storing the next available space in the collection buffer for each segment
     // each segment gets allocated its own portion of the collection buffer to store all of its pages
     // the offset begins at the start of that portion before each page's aligned size is added on
     size_t segmentNextPageOffsets[PAK_MAX_SEGMENTS] = {};
+
+    // Stores the total padding size that is required to be added on to the sum of the page sizes in order to align
+    // each page to its own alignment within the segment's buffer
+    size_t segmentRequiredAlignmentPadding[PAK_MAX_SEGMENTS] = {};
+
+    // Stores the total size of all pages within each segment. Does not account for alignment padding
+    size_t segmentTotalPageDataSize[PAK_MAX_SEGMENTS] = {};
 
     for (int segmentIdx = 0; segmentIdx < this->segmentCount(); ++segmentIdx)
     {
@@ -820,19 +843,49 @@ void CPakFile::AllocateSegments()
         const PakPageHdr_t* const page = &this->header()->GetPageHeaders()[pageIdx];
         const PakSegmentHdr_t* const segment = &this->header()->GetSegmentHeaders()[page->segment];
 
+        const size_t pageOffsetAligned = IALIGN(segmentNextPageOffsets[page->segment], page->align);
+
+        segmentRequiredAlignmentPadding[page->segment] += pageOffsetAligned - segmentNextPageOffsets[page->segment];
+        segmentTotalPageDataSize[page->segment] += page->size;
+
         if (!segment->IsHeaderSegment())
         {
-            const size_t pageOffsetAligned = IALIGN(segmentNextPageOffsets[page->segment], page->align);
+#if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_VERBOSE)
+            Log("PAKLOAD: Allocating %d bytes to page %i (segment %i) @ %p. Alignment: %i/%i\n", page->size, pageIdx, page->segment, this->segmentCollections[segment->GetType()].buffer + pageOffsetAligned, page->align, segment->align);
+            
+            const SegmentCollection_t* const collection = &this->segmentCollections[segment->GetType()];
+            Log("PAKLOAD: Bytes allocated in segment collection %i, which has a buffer size of %lld (%p -> %p)\n", segment->GetType(), collection->dataSize, collection->buffer, collection->buffer + collection->dataSize);
+#endif
 
             this->pageBuffers[pageIdx] = this->segmentCollections[segment->GetType()].buffer + pageOffsetAligned;
 
-            segmentNextPageOffsets[page->segment] = pageOffsetAligned + page->size;
         }
         else
-        {
             this->pageBuffers[pageIdx] = this->segmentCollections[SegmentCollection_t::eType::SCT_HEAD].buffer;
-        }
+
+        segmentNextPageOffsets[page->segment] = pageOffsetAligned + page->size;
     }
+
+
+    for (int i = 0; i < this->segmentCount(); ++i)
+    {
+        const PakSegmentHdr_t* const segment = &this->header()->GetSegmentHeaders()[i];
+
+        // Subtract the size of all of the pages from the segment's size
+        // This leaves the total data size that is used for aligning each page to its required alignment within the buffer
+        const size_t actualSegmentAlignmentPadding = segment->size - segmentTotalPageDataSize[i];
+
+        if (actualSegmentAlignmentPadding < segmentRequiredAlignmentPadding[i])
+        {
+            g_assetData.Log_Warning(this, "Tried to allocate a segment buffer for segment %i that was too small (required padding size %lld, got %lld)", i, segmentRequiredAlignmentPadding[i], actualSegmentAlignmentPadding);
+            
+            return false;
+        }
+        else if (actualSegmentAlignmentPadding > segmentRequiredAlignmentPadding[i])
+            g_assetData.Log_Warning(this, "Pak allocated segment buffers that are larger than required for segment %i. This is likely due to it being a custom pak made with a buggy version of RePak (required padding size %lld, got %lld)", i, segmentRequiredAlignmentPadding[i], actualSegmentAlignmentPadding);
+    }
+
+    return true;
 }
 
 const bool CPakFile::DecodePatchCommands()
@@ -879,8 +932,14 @@ const bool CPakFile::DecodePatchCommands()
         }
 
 #if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_VERBOSE)
-        Log("patch func! %i: bytesToPatch %lld, dst sz %lld, nbts %lld nrfbb %lld\n", cmd, p.numBytesToPatch, p.patchDestinationSize, p.numBytesToSkip, p.numRemainingFileBufferBytes);
+        //Log("PTCH: Patch [%i]\n\tRemaining source bytes: %lld\n\tPatch destination size: %lld\n\tNumber of bytes to skip: %lld\n\tNumber of bytes left in the file buffer: %lld\n", cmd, p.numBytesToPatch, p.patchDestinationSize, p.numBytesToSkip, p.numRemainingFileBufferBytes);
 #endif // #if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_VERBOSE)
+
+#if defined(ASSERTS)
+        const SegmentCollection_t* const collection = &segmentCollections[m_pSegmentHeaders[p.patchDestinationSegment].GetType()];
+
+        assertm(p.patchDestination + p.patchDestinationSize <= collection->buffer + collection->dataSize, "Patch operation attempted to write beyond the end of the segment collection buffer");
+#endif
         if (!p.patchFunc(this, &p.numRemainingFileBufferBytes))
             break;
     }
@@ -984,7 +1043,6 @@ void CPakFile::SortAssetsByHeaderPointer()
         sizeof(PakAsset*) * numOldAssets
     );
 
-    //this->sortedAssetPointers = tempAssetPointers;
     memcpy(
         this->sortedAssetPointers.data(),
         tempAssetPointers.data(),
@@ -1011,12 +1069,156 @@ static std::vector<uint32_t> postLoadOrder =
 
 static std::unordered_map<AssetType_t, std::string> s_ParsedPrefixes(63);
 
+void CPakFile::HandleOwnPostLoad()
+{
+    struct TypeRange_t
+    {
+        uint32_t type;
+        size_t start;
+        size_t end;
+    };
+
+    // find if type is in custom order.
+    auto isInCustomOrder = [](const uint32_t type) -> bool
+        {
+            return std::ranges::find(postLoadOrder, type) != postLoadOrder.end();
+        };
+
+    std::vector<TypeRange_t> typeRanges;
+    size_t startIndex = 0;
+    size_t currentIndex = 0;
+
+    // we will get the ranges now for each prioritized asset.
+    while (currentIndex < m_pAssetsProcessed.size())
+    {
+        const uint32_t currentType = m_pAssetsProcessed[currentIndex]->GetAssetType();
+        if (!isInCustomOrder(currentType))
+        {
+            ++currentIndex;
+            continue;
+        }
+
+        // Count range.
+        while (currentIndex < m_pAssetsProcessed.size() && m_pAssetsProcessed[currentIndex]->GetAssetType() == currentType)
+        {
+            ++currentIndex;
+        }
+
+        // Store the range for the current type in the vector using the struct.
+        typeRanges.push_back({ currentType, startIndex, currentIndex - 1 });
+        startIndex = currentIndex;
+    }
+
+    // we only want half of the available threads.
+    CParallelTask parallelTask(PARSE_THREAD_COUNT);
+
+    std::atomic<uint32_t> assetIdx = 0;
+    for (const auto& range : typeRanges)
+    {
+        // check if asset is registered and has post load function.
+        if (auto it = g_assetData.m_assetTypeBindings.find(range.type); it != g_assetData.m_assetTypeBindings.end() && it->second.postLoadFunc)
+        {
+            // to the start of the current asset range.
+            assetIdx = static_cast<uint32_t>(range.start);
+            parallelTask.addTask([this, range, it, &assetIdx]
+                {
+                    // our asset count will be the range.end + 1 so we process the count properly.
+                    const uint32_t assetCount = static_cast<uint32_t>(range.end + 1);
+                    while (assetIdx < assetCount)
+                    {
+                        const uint32_t assetToProcess = assetIdx++;
+                        if (assetToProcess >= assetCount)
+                            continue;
+
+                        CAsset* pakAsset = this->m_pAssetsProcessed[assetToProcess];
+                        // temp
+                        it->second.postLoadFunc(pakAsset->GetContainerFile<CAssetContainer>(), pakAsset);
+                        pakAsset->SetPostLoadStatus(true);
+
+                        // External asset post-load callbacks
+                        // This is used for the ImGui Itemflav window to populate some data when settings assets are found
+                        if (auto callbackIt = g_assetData.m_assetPostLoadCallbacks.find(reinterpret_cast<CPakAsset*>(pakAsset)->GetAssetGUID()); callbackIt != g_assetData.m_assetPostLoadCallbacks.end())
+                        {
+                            if (callbackIt->second.size() > 0)
+                            {
+                                for (auto& callback : callbackIt->second)
+                                {
+                                    callback(pakAsset);
+                                }
+                            }
+                        }
+                    }
+
+                }, PARSE_THREAD_COUNT);
+
+#ifndef RTECH_STATIC_LIB
+            std::string eventName = std::format("Processing Assets Prioritized Post Load.. ({})", fourCCToString(it->first)).c_str();
+            const ProgressBarEvent_t* const processingAssetsEvent = g_pImGuiHandler->AddProgressBarEvent(eventName.c_str(), static_cast<uint32_t>(range.end + 1), &assetIdx, true);
+#endif
+            parallelTask.execute();
+            parallelTask.wait();
+#ifndef RTECH_STATIC_LIB
+            g_pImGuiHandler->FinishProgressBarEvent(processingAssetsEvent);
+#endif
+        }
+    }
+
+    const uint32_t leftOverAssets = static_cast<uint32_t>(m_pAssetsProcessed.size());
+    assetIdx = typeRanges.empty() ? 0u : static_cast<uint32_t>(typeRanges.back().end); // last asset we processed after custom order.
+
+    // we have to account for that .size() on vector starts from 1.
+    if (typeRanges.empty() || leftOverAssets != (assetIdx + 1))
+    {
+        parallelTask.addTask([this, leftOverAssets, &assetIdx]
+            {
+                const uint32_t assetCount = leftOverAssets;
+                while (assetIdx < assetCount)
+                {
+                    const uint32_t assetToProcess = assetIdx++;
+                    if (assetToProcess >= assetCount)
+                        continue;
+
+                    CAsset* const pakAsset = this->m_pAssetsProcessed[assetToProcess];
+                    if (auto it = g_assetData.m_assetTypeBindings.find(pakAsset->GetAssetType()); it != g_assetData.m_assetTypeBindings.end() && it->second.postLoadFunc)
+                    {
+                        //it->second.postLoadFunc(pAssetLookup->m_asset->pak(), pAssetLookup->m_asset);
+                        // temp
+                        it->second.postLoadFunc(pakAsset->GetContainerFile<CAssetContainer>(), pakAsset);
+                    }
+                    pakAsset->SetPostLoadStatus(true);
+
+                    // External asset post-load callbacks
+                    // This is used for the ImGui Itemflav window to populate some data when settings assets are found
+                    if (auto callbackIt = g_assetData.m_assetPostLoadCallbacks.find(reinterpret_cast<CPakAsset*>(pakAsset)->GetAssetGUID()); callbackIt != g_assetData.m_assetPostLoadCallbacks.end())
+                    {
+                        if (callbackIt->second.size() > 0)
+                        {
+                            for (auto& callback : callbackIt->second)
+                            {
+                                callback(pakAsset);
+                            }
+                        }
+                    }
+                }
+            }, PARSE_THREAD_COUNT);
+
+#ifndef RTECH_STATIC_LIB
+        const ProgressBarEvent_t* const processingAssetsEvent = g_pImGuiHandler->AddProgressBarEvent("Processing Assets Post Load..", leftOverAssets, &assetIdx, true);
+#endif
+        parallelTask.execute();
+        parallelTask.wait();
+
+#ifndef RTECH_STATIC_LIB
+        g_pImGuiHandler->FinishProgressBarEvent(processingAssetsEvent);
+#endif
+    }
+}
+
 void CPakFile::ProcessAssets()
 {
     // prepare the parallel task with max threads to be used.
-    const uint32_t threadCount = UtilsConfig->parseThreadCount;
-    CParallelTask parallelLoadTask(threadCount);
-    CParallelTask parallelProcessTask(threadCount);
+    CParallelTask parallelLoadTask(PARSE_THREAD_COUNT);
+    CParallelTask parallelProcessTask(PARSE_THREAD_COUNT);
 
     std::mutex assetMutex;
 
@@ -1027,39 +1229,23 @@ void CPakFile::ProcessAssets()
             const uint32_t cpyAssetCount = static_cast<uint32_t>(assetCount());
             while (assetIdx < cpyAssetCount)
             {
-                const uint32_t assetToProcess = assetIdx++;
-                if (assetToProcess >= cpyAssetCount)
-                    continue;
-
-                // its okay to access m_pAssetsInternal here without a mutex, we won't currently be writing to it while this it processing.
-                PakAsset_t* const pAsset = &m_pAssetsInternal[assetToProcess];
-
-                const AssetType_t type = static_cast<AssetType_t>(pAsset->type);
-
-                const std::string prefix = s_AssetTypePaths.contains(type) ? s_AssetTypePaths.find(type)->second : fourCCToString(pAsset->type);
-
-                // note(amos): crashes rarely when s_ParsedPrefixes.find() == s_ParsedPrefixes.end().
-                // crashed on s3's mp_rr_desertlands_64k_x_64k.rpak in debug.
-                const std::string tempName = std::format("{}/0x{:X}", prefix, pAsset->guid);
-
-                CPakAsset* const asset = new CPakAsset(this, pAsset, tempName);
-                parallelLoadTask.addTask([this, pAsset, asset]
-                    {
-                        if (auto it = g_assetData.m_assetTypeBindings.find(pAsset->type); it != g_assetData.m_assetTypeBindings.end())
-                        {
-                            if (it->second.loadFunc)
-                                it->second.loadFunc(this, asset);
-                        }
-                    }, 1u);
-
-                // mutex so we can write to m_pakAssets safely.
-                std::lock_guard<std::mutex> lock(assetMutex);
-                g_assetData.v_assets.push_back({ pAsset->guid, asset });
-            }
-        }, threadCount);
+                if (auto it = g_assetData.m_assetTypeBindings.find(pAsset->type); it != g_assetData.m_assetTypeBindings.end())
+                {
+                    if (it->second.loadFunc)
+                        it->second.loadFunc(this, asset);
+                }
+            }, 1u);
+            
+            // mutex so we can write to m_pakAssets safely.
+            std::lock_guard<std::mutex> lock(assetMutex);
+            g_assetData.v_assets.push_back({ pAsset->guid, asset });
+            m_pAssetsProcessed.push_back(asset);
+        }
+    }, PARSE_THREAD_COUNT);
 
     auto fnRemainingTasks = PB_FNCLASS_TO_VOID(&CParallelTask::getRemainingTasks);
 
+#ifndef RTECH_STATIC_LIB
     const ProgressBarEvent_t* processingAssetsEvent = nullptr;
     // If a global file-level load progress event is active, avoid creating per-asset UI events from worker threads.
 
@@ -1067,14 +1253,18 @@ void CPakFile::ProcessAssets()
     // as this gives a reasonable chance of the progress bar actually showing up instead of just flashing
     if (assetCount() >= 100 )
         processingAssetsEvent = g_pImGuiHandler->AddProgressBarEvent("Preparing Assets...", static_cast<uint32_t>(assetCount()), &assetIdx, true);
+#endif
 
     parallelProcessTask.execute();
     parallelProcessTask.wait();
 
-    if (processingAssetsEvent)
+#ifndef RTECH_STATIC_LIB
+    if(processingAssetsEvent)
         g_pImGuiHandler->FinishProgressBarEvent(processingAssetsEvent);
 
-    const ProgressBarEvent_t* const loadAssetsEvent = g_pImGuiHandler->AddProgressBarEvent("Processing Assets...", parallelLoadTask.getRemainingTasks(), &parallelLoadTask, fnRemainingTasks);
+    const ProgressBarEvent_t* const loadAssetsEvent = g_pImGuiHandler->AddProgressBarEvent("Processing Assets...", parallelLoadTask.getRemainingTasks(), &parallelLoadTask, fnRemainingTasks, nullptr);
+#endif
+
     parallelLoadTask.execute();
 
     // we pre-sort each pak for post load callbacks by certain priority order.
@@ -1101,6 +1291,12 @@ void CPakFile::ProcessAssets()
         });
 
     parallelLoadTask.wait();
-    if (loadAssetsEvent)
-        g_pImGuiHandler->FinishProgressBarEvent(loadAssetsEvent);
+
+#ifndef RTECH_STATIC_LIB
+    g_pImGuiHandler->FinishProgressBarEvent(loadAssetsEvent);
+
+    // If the global asset data has already done post-loading, then this pak is an ODL pak and must handle its own asset post-loading
+    if (g_assetData.m_donePostLoad)
+        HandleOwnPostLoad();
+#endif
 }

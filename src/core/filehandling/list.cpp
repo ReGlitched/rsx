@@ -4,6 +4,68 @@
 
 extern CBufferManager g_BufferManager;
 
+void ExportAssetListCSVToFileStream(std::vector<CGlobalAssetData::AssetLookup_t>* assets, std::ofstream* ofs)
+{
+    *ofs << "type,guid,file_name,asset_name\n";
+    for (size_t i = 0; i < assets->size(); ++i)
+    {
+        const CGlobalAssetData::AssetLookup_t& it = assets->at(i);
+
+        *ofs << fourCCToString(it.m_asset->GetAssetType(), true) << "," << std::hex << it.m_guid << "," << it.m_asset->GetContainerFileName() << "," << it.m_asset->GetAssetName();
+        
+        if(i != assets->size()-1)
+            *ofs << "\n";
+    }
+}
+
+void ExportAssetListTXTToFileStream(std::vector<CGlobalAssetData::AssetLookup_t>* assets, std::ofstream* ofs)
+{
+    for (size_t i = 0; i < assets->size(); ++i)
+    {
+        const CGlobalAssetData::AssetLookup_t& it = assets->at(i);
+
+        *ofs << it.m_asset->GetAssetName();
+
+        if (i != assets->size() - 1)
+            *ofs << "\n";
+    }
+}
+
+void ExportDependenciesToFileStream_AdjList(std::vector<CGlobalAssetData::AssetLookup_t>* assets, std::ofstream* ofs)
+{
+    Log("DEPS: Writing dependencies as an adjacency list for %lld assets\n", assets->size());
+    for (size_t i = 0; i < assets->size(); ++i)
+    {
+        const CGlobalAssetData::AssetLookup_t& it = assets->at(i);
+
+        // For now this is only usable on rpaks
+        if (it.m_asset->GetAssetContainerType() == CAssetContainer::ContainerType::PAK)
+        {
+            *ofs << it.m_asset->GetAssetName();
+
+            CPakAsset* pakAsset = reinterpret_cast<CPakAsset*>(it.m_asset);
+
+            std::vector<AssetGuid_t> dependencies;
+            pakAsset->getDependencies(dependencies);
+
+            for (size_t depIdx = 0; depIdx < dependencies.size(); ++depIdx)
+            {
+                const AssetGuid_t depGuid = dependencies[depIdx];
+
+                CAsset* depAsset = g_assetData.FindAssetByGUID<CPakAsset>(depGuid.guid);
+
+                if (depAsset)
+                    *ofs << "," << depAsset->GetAssetName();
+                else
+                    *ofs << "," << std::format("{:016X}*", depGuid.guid);
+            }
+        }
+
+        if (i != assets->size() - 1)
+            *ofs << "\n";
+    }
+}
+
 void HandleListExportPakAssets(const HWND handle, std::vector<CGlobalAssetData::AssetLookup_t>* assets)
 {
     std::vector<std::string> assetNames(assets->size());

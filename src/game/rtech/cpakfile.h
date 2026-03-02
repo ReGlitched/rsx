@@ -659,7 +659,7 @@ public:
     const CAsset::ContainerType GetContainerType() const { return CAsset::ContainerType::PAK; };
 
     const bool ParseFileBuffer(const std::string& path);
-    static const bool DecompressFileBuffer(const char* fileBuffer, std::shared_ptr<char[]>* outBuffer);
+    const bool DecompressFileBuffer(const char* fileBuffer, std::shared_ptr<char[]>* outBuffer);
 
 #if defined(PAKLOAD_PATCHING_ANY)
 public:
@@ -674,8 +674,6 @@ public:
 #endif // #if defined(PAKLOAD_PATCHING_ANY)
 
 private:
-    std::string m_FilePath;
-
     PakHdr_t* m_pHeader;
 
     PakPatchDataHdr_t* m_pPatchDataHeader;
@@ -712,7 +710,6 @@ protected:
 
         size_t patchDestinationSize; // number of bytes left to write at the patch destination
 
-
         // source in the patch stream's replacement data
         char* patchReplacementData; // pointer to the location that patch data will be taken from
 
@@ -720,6 +717,8 @@ protected:
         char* patchDestination; // pointer to the patch destination that will receive the patch data
 
         PatchFunc_t patchFunc;
+
+        int patchDestinationSegment; // Keep track of the segment that the next patch operation will write into, so we can do some bounds checking on write
     } p;
 
     // This represents the number of assets in the pak that have had all of their required pages patched
@@ -747,10 +746,11 @@ protected:
     FORCEINLINE void SetPatchBytesToSkip(size_t numBytes) { p.numBytesToSkip = numBytes; };
     FORCEINLINE void SetPatchSourceData(void* pointer) { p.patchOriginalData = reinterpret_cast<char*>(pointer); };
 
-    FORCEINLINE void SetPatchDestination(void* pointer, size_t destinationSize)
+    FORCEINLINE void SetPatchDestination(void* pointer, size_t destinationSize, int dstSegment)
     {
         p.patchDestination = reinterpret_cast<char*>(pointer);
         p.patchDestinationSize = destinationSize;
+        p.patchDestinationSegment = dstSegment;
     };
 
     void SetPatchCommand(const int8_t cmd);
@@ -772,6 +772,7 @@ private:
 
     void* m_pAssetsRaw;
     PakAsset_t* m_pAssetsInternal;
+    std::vector<CAsset*> m_pAssetsProcessed;
 
 #if defined(PAKLOAD_PATCHING_ANY)
     // pointers to each asset entry, sorted by header index and offset
@@ -802,7 +803,7 @@ private:
     const bool DecodePatchCommands();
 
     void CreateHeaderSegmentCollection();
-    void AllocateSegments();
+    bool AllocateSegments();
 #endif
 
     const bool ParsePakFileHeader(const char* buf, const short version);
@@ -832,6 +833,8 @@ private:
 #endif // #if defined(PAKLOAD_PATCHING_ANY)
 
     void ProcessAssets();
+
+    void HandleOwnPostLoad();
 
 public:
     inline PakHdr_t* header() const { return m_pHeader; };
@@ -865,7 +868,7 @@ public:
 
     std::string getPakStem() const
     {
-        const std::string stem = std::filesystem::path(this->m_FilePath).stem().string();
+        const std::string stem = GetFilePath().stem().string();
 
         if (patchCount() == 0)
             return stem;
@@ -931,14 +934,21 @@ bool CPakFile::ProcessNextPage()
 
         // Get the next usable offset in the HEADER segment collection for this asset type.
         char* const destination = this->segmentCollections[SegmentCollection_t::eType::SCT_HEAD].buffer + assetTypeInfo.offsetToNextHeaderInCollection;
-        this->SetPatchDestination(destination, asset->headerStructSize);
+
+#if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_VERBOSE)
+        Log("PTCH: setting patch destination for asset (%llX with size %lld) in a new page (idx %i in segment %i)\n", asset->guid, asset->headerStructSize, nextPageIdx, nextPage->segment);
+#endif
+        this->SetPatchDestination(destination, asset->headerStructSize, nextPage->segment);
 
         // Advance the offset for this asset type to account for the asset header we will write on the next patch operation.
         assetTypeInfo.offsetToNextHeaderInCollection += asset->headerStructSize;
     }
     else
     {
-        this->SetPatchDestination(this->pageBuffers[nextPageIdx], nextPage->size);
+#if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_VERBOSE)
+        Log("PTCH: setting patch destination for non-header page %i with size %lld\n", nextPageIdx, nextPage->size);
+#endif
+        this->SetPatchDestination(this->pageBuffers[nextPageIdx], nextPage->size, nextPage->segment);
     }
 
     return true;
@@ -1037,10 +1047,15 @@ const bool CPakFile::LoadAndPatchAssetData()
         {
             this->SetPatchBytesToSkip(static_cast<size_t>(nextAsset->headPagePtr.offset - originalHeaderOffset - asset->headerStructSize));
 
+#if (PAKLOAD_DEBUG == PAKLOAD_DEBUG_VERBOSE)
+            Log("PTCH: setting patch destination for asset (%llX, size %lld) in existing page %lld\n", nextAsset->guid, nextAsset->headerStructSize, shiftedPageIndex);
+#endif
+
             PakLoadedAssetTypeInfo_t* const assetTypeInfo = &this->loadedAssetTypeInfo[nextAsset->type];
             this->SetPatchDestination(
                 this->segmentCollections[SegmentCollection_t::eType::SCT_HEAD].buffer + assetTypeInfo->offsetToNextHeaderInCollection,
-                nextAsset->headerStructSize
+                nextAsset->headerStructSize,
+                page->segment
             );
 
             assetTypeInfo->offsetToNextHeaderInCollection += nextAsset->headerStructSize;
@@ -1078,6 +1093,7 @@ public:
     {
         // set initial export status to false
         SetExportedStatus(false);
+        SetPostLoadStatus(false);
 
         SetAssetName(name);
         SetAssetVersion(asset->version);
@@ -1117,7 +1133,9 @@ public:
     PakAsset_t* const data() { return static_cast<PakAsset_t*>(m_assetData); };
     const PakAsset_t* const data() const { return static_cast<const PakAsset_t*>(m_assetData); };
 
-    char* const extraData() { return reinterpret_cast<char*>(m_ExtraData.get()); };
+    template<typename T>
+    T const extraData() { assertm(m_ExtraData.get(), "Asset extra data must be valid before being retrieved"); return reinterpret_cast<T>(m_ExtraData.get()); };
+    char* const extraData() { assertm(m_ExtraData.get(), "Asset extra data must be valid before being retrieved"); return reinterpret_cast<char*>(m_ExtraData.get()); };
 
     template <typename T>
     void setExtraData(T* const data)
@@ -1125,6 +1143,8 @@ public:
         std::shared_ptr<T> ptr(data);
         m_ExtraData = std::move(ptr);
     };
+
+    const bool hasExtraData() const { return m_ExtraData.get() != nullptr; };
 
     void* const header() { return data()->headPagePtr.ptr; };
     char* const cpu() { return data()->dataPagePtr.ptr; };

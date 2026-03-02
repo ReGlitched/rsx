@@ -35,11 +35,12 @@ static bool ExportLcdScreenEffectAsset(CAsset* const asset, const int setting)
 
     if (!set)
     {
+        g_assetData.Log_Warning((CAssetContainer*)pakAsset->GetContainerFile(), "Failed to export LCD Screen Effect for asset '%llX': Unsupported version", asset->GetAssetGUID());
         assert(0); // Unsupported rlcd version.
         return false;
     }
 
-    std::filesystem::path exportPath = std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME);
+    std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory();
     std::filesystem::path rlcdPath = asset->GetAssetName();
 
     exportPath.append(rlcdPath.parent_path().string());
@@ -83,6 +84,7 @@ void InitLcdScreenEffectAssetType()
 {
     AssetTypeBinding_t type =
     {
+        .name = "LCD Screen Effect",
         .type = 'dclr',
         .headerAlignment = 4,
         .loadFunc = nullptr,

@@ -12,11 +12,12 @@ extern ExportSettings_t g_ExportSettings;
 
 bool CBluepointPakfile::ParseFromFile()
 {
-	if (m_filePath.empty())
+	const std::filesystem::path& filePath = GetFilePath();
+	if (filePath.empty())
 		return false;
 
-	StreamIO in(m_filePath, eStreamIOMode::Read);
-	size_t fileSize = std::filesystem::file_size(m_filePath);
+	StreamIO in(filePath, eStreamIOMode::Read);
+	size_t fileSize = std::filesystem::file_size(filePath);
 
 	m_Buf = std::make_shared<char[]>(fileSize);
 	in.R()->read(m_Buf.get(), fileSize);
@@ -109,7 +110,7 @@ bool ExportBluepointWrappedFileAsset(CAsset* const asset, const int setting)
 	const CBluepointWrappedFile* const file = static_cast<const CBluepointWrappedFile* const>(asset);
 	const CBluepointPakfile* const pakfile = file->GetContainerFile<CBluepointPakfile>();
 
-	std::filesystem::path exportPath = std::filesystem::current_path().append(EXPORT_DIRECTORY_NAME);
+	std::filesystem::path exportPath = g_ExportSettings.GetExportDirectory();
 	const std::filesystem::path filePath(file->GetAssetName());
 
 	// truncate paths?
@@ -183,6 +184,7 @@ void InitBluepointWrappedFileAssetType()
 {
 	AssetTypeBinding_t type =
 	{
+		.name = "Bluepoint Wrapped File",
 		.type = 'fwpb',
 		.headerAlignment = 4,
 		.loadFunc = LoadBluepointWrappedFileAsset,
