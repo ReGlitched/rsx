@@ -3,7 +3,6 @@
 
 #include <core/render/dx.h>
 #include <thirdparty/imgui/imgui.h>
-#include <core/discord_presence.h>
 
 extern CDXParentHandler* g_dxHandler;
 extern ExportSettings_t g_ExportSettings;
@@ -36,8 +35,6 @@ void LoadUIImageAsset(CAssetContainer* const pak, CAsset* const asset)
             name += ".rpak";
 
         pakAsset->SetAssetName(name, true);
-        // Update Discord presence to reflect current loaded asset
-        DiscordGamePresence::UpdatePresence(name, "Loading UI Image");
     }
     //else
     //{

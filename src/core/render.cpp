@@ -15,8 +15,6 @@
 
 #include <core/filehandling/export.h>
 
-#include <core/discord_presence.h>
-
 #include <game/rtech/cpakfile.h>
 #include <game/rtech/assets/model.h>
 #include <game/rtech/assets/texture.h>
@@ -934,10 +932,6 @@ void HandleRenderFrame()
                             ImGui::SetNextItemSelectionUserData(rowNum);
                             if (ImGui::Selectable(asset->GetAssetName().c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick))
                             {
-                                // Update Discord presence to show which asset was clicked and its pak (if enabled)
-                                if (UtilsConfig->discordPresenceEnabled)
-                                    DiscordGamePresence::UpdatePresence(asset->GetAssetName(), asset->GetContainerFileName());
-
                                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                                 {
                                     // if the double clicked asset is not in the list, add it
@@ -1096,10 +1090,6 @@ void HandleRenderFrame()
             ImGui::Checkbox("Export asset dependencies", &g_ExportSettings.exportAssetDeps);
             ImGui::SameLine();
             g_pImGuiHandler->HelpMarker("Enables exporting of all dependencies that are associated with any asset that is being exported.");
-            // Discord presence toggle
-            ImGui::SameLine();
-            ImGui::Checkbox("Enable Discord Presence", &UtilsConfig->discordPresenceEnabled);
-            
             ImGui::Checkbox("Disable CacheDB names", &g_ExportSettings.disableCachedNames);
             ImGui::SameLine();
             g_pImGuiHandler->HelpMarker("Disables loading names from the cache file, new names will still be added.");

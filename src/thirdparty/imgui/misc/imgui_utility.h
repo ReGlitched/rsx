@@ -86,8 +86,6 @@ public:
         uint32_t parseThreadCount;
         uint32_t exportThreadCount;
         uint32_t compressionLevel;
-        // Enable Discord rich presence updates from the app
-        bool discordPresenceEnabled;
     } cfg;
 
     struct FilterSettings_t

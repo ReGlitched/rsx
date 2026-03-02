@@ -78,8 +78,6 @@ static void UtilSettings_ReadLine(ImGuiContext* const ctx, ImGuiSettingsHandler*
         ImGuiReadSetting("ExportThreads=%u", cfg->exportThreadCount, i, uint32_t);
         ImGuiReadSetting("ParseThreads=%u", cfg->parseThreadCount, i, uint32_t);
         ImGuiReadSetting("CompressionLevel=%u", cfg->compressionLevel, i, uint32_t);
-        int di;
-        ImGuiReadSetting("DiscordPresence=%i", cfg->discordPresenceEnabled, di, bool);
     }
 }
 
@@ -92,7 +90,6 @@ static void UtilSettings_WriteAll(ImGuiContext* const ctx, ImGuiSettingsHandler*
     buf->appendf("ExportThreads=%u\n", UtilsConfig->exportThreadCount);
     buf->appendf("ParseThreads=%u\n", UtilsConfig->parseThreadCount);
     buf->appendf("CompressionLevel=%u\n", UtilsConfig->compressionLevel);
-    buf->appendf("DiscordPresence=%i\n", UtilsConfig->discordPresenceEnabled ? 1 : 0);
     buf->append("\n");
 }
 
@@ -471,8 +468,6 @@ ImGuiHandler::ImGuiHandler()
 
     // standard config setting for compression
     cfg.compressionLevel = eCompressionLevel::CMPR_LVL_VERYFAST;
-    // discord presence is enabled by default
-    cfg.discordPresenceEnabled = true;
 
     memset(pbEvents, 0, sizeof(pbEvents));
     for (int8_t i = PB_SIZE - 1; i >= 0; --i) // in reverse order

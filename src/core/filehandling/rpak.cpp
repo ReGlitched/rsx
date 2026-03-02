@@ -5,8 +5,6 @@
 #include <core/filehandling/load.h>
 #include <core/filehandling/export.h>
 
-#include <core/discord_presence.h>
-
 #include <game/rtech/cpakfile.h>
 
 namespace
@@ -143,9 +141,6 @@ void HandlePakLoad(std::vector<std::string> filePaths)
                 g_assetData.m_pakLoadStatusMap.emplace(pak->header()->crc, true);
 
             g_assetData.v_assetContainers.emplace_back(pak);
-            // Update Discord presence to show which pak was just loaded (if enabled)
-            if (UtilsConfig->discordPresenceEnabled)
-                DiscordGamePresence::UpdatePresence(fsPath.filename().string(), "Loaded pak");
         }
         else
         {
