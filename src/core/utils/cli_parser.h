@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cassert>
+#include <cstring>
+#include <vector>
+
 class CCommandLine
 {
 public:
@@ -52,7 +56,7 @@ public:
 	{
 		if (idx < 0 || idx >= argc)
 		{
-			assertm(false, "range check failure");
+			assert(false && "range check failure");
 			return nullptr;
 		}
 

@@ -159,8 +159,6 @@ public:
 
     const ProgressBarEvent_t* const AddProgressBarEvent(const char* const eventName, const uint32_t eventNum, std::atomic<uint32_t>* const remainingEvents, const bool isInverted);
     void FinishProgressBarEvent(const ProgressBarEvent_t* const event);
-    // NOTE: RequestFinishProgressEvent removed; progress events should be finished
-    // directly via FinishProgressBarEvent from the creating thread where appropriate.
     void HandleProgressBar();
 
     struct UtilsSettings_t
@@ -175,6 +173,19 @@ public:
         ImGuiCustomTextFilter textFilter;
     } filter;
 
+    struct ThemeSettings_t
+    {
+        ImVec4 accentColor = ImVec4(0.45f, 0.30f, 0.70f, 1.00f);
+        ImVec4 accentHovered = ImVec4(0.50f, 0.35f, 0.80f, 1.00f);
+        ImVec4 accentActive = ImVec4(0.55f, 0.40f, 0.85f, 1.00f);
+        ImVec4 backgroundColor = ImVec4(0.12f, 0.10f, 0.15f, 1.00f);
+        ImVec4 windowBg = ImVec4(0.12f, 0.10f, 0.15f, 1.00f);
+        ImVec4 textRegular = ImVec4(0.85f, 0.85f, 0.90f, 1.00f);
+        ImVec4 headerBg = ImVec4(0.35f, 0.25f, 0.55f, 0.60f);
+        ImVec4 titleBg = ImVec4(0.35f, 0.25f, 0.55f, 1.00f);
+        bool showThemeEditor = false;
+    } theme;
+
     ImFont* GetDefaultFont() const { return defaultFont; };
     ImFont* GetMonospaceFont() const { return monospaceFont; };
 
@@ -182,11 +193,13 @@ public:
 
     static void ProgressBarCentered(float fraction, const ImVec2& size_arg, const char* overlay, ProgressBarEvent_t* event);
 
+    void ShowThemeEditor();
+    void ApplyTheme();
+
 private:
     std::mutex eventMutex;
     ProgressBarEvent_t pbEvents[PB_SIZE];
     std::stack<uint8_t> pbAvailSlots;
-    // legacy finish queue removed
 
     ImFont* defaultFont;
     ImFont* monospaceFont;

@@ -105,12 +105,6 @@
     <ClInclude Include="core\utils\fileio.h">
       <Filter>core\utils</Filter>
     </ClInclude>
-    <ClInclude Include="core\utils\load_progress.h">
-      <Filter>core\utils</Filter>
-    </ClInclude>
-    <ClInclude Include="core\utils\fileassoc.h">
-      <Filter>core\utils</Filter>
-    </ClInclude>
     <ClInclude Include="game\rtech\assets\animrig.h">
       <Filter>game\rtech\assets</Filter>
     </ClInclude>

@@ -4,8 +4,6 @@
 #include <game/rtech/utils/utils.h>
 
 #include <imgui.h>
-#include <core/filehandling/export.h>
-#include <cstdio>
 
 extern CDXParentHandler* g_dxHandler;
 
@@ -686,11 +684,7 @@ bool ExportShaderAsset(CAsset* const asset, const int setting)
 	const std::filesystem::path shaderPath(asset->GetAssetName());
 
 	if (g_ExportSettings.exportPathsFull)
-	{
-		const std::string parentPathStr = namingPath.parent_path().string();
-		if (!parentPathStr.empty())
-			exportPath.append(parentPathStr);
-	}
+		exportPath.append(shaderPath.parent_path().string());
 	else
 		exportPath.append(s_PathPrefixSHDR);
 
@@ -700,9 +694,7 @@ bool ExportShaderAsset(CAsset* const asset, const int setting)
 		return false;
 	}
 
-	char shaderGuidBuffer[34] = {};
-	std::snprintf(shaderGuidBuffer, sizeof(shaderGuidBuffer), "0x%llX.rpak", namingAsset->GetAssetGUID());
-	exportPath.append(shaderGuidBuffer);
+	exportPath.append(shaderPath.filename().string());
 
 	switch (setting)
 	{

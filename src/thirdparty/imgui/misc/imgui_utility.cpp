@@ -94,6 +94,62 @@ static void UtilSettings_WriteAll(ImGuiContext* const ctx, ImGuiSettingsHandler*
     buf->append("\n");
 }
 
+// theme settings
+static void* ThemeSettings_ReadOpen(ImGuiContext* const ctx, ImGuiSettingsHandler* const handler, const char* const name)
+{
+    UNUSED(handler);
+    UNUSED(ctx);
+
+    if (strcmp(name, "theme") == 0)
+        return &g_pImGuiHandler->theme;
+    return nullptr;
+}
+
+static void ThemeSettings_ReadLine(ImGuiContext* const ctx, ImGuiSettingsHandler* const handler, void* const entry, const char* const line)
+{
+    UNUSED(handler);
+    UNUSED(ctx);
+
+    if (entry)
+    {
+        ImGuiHandler::ThemeSettings_t* const theme = static_cast<ImGuiHandler::ThemeSettings_t*>(entry);
+
+        // Helper to read ImVec4
+        auto readColor = [line](const char* label, ImVec4& color) {
+            float r, g, b, a;
+            if (sscanf_s(line, label, &r, &g, &b, &a) == 4) {
+                color.x = r; color.y = g; color.z = b; color.w = a;
+            }
+        };
+
+        readColor("AccentColor=%f,%f,%f,%f", theme->accentColor);
+        readColor("AccentHovered=%f,%f,%f,%f", theme->accentHovered);
+        readColor("AccentActive=%f,%f,%f,%f", theme->accentActive);
+        readColor("WindowBg=%f,%f,%f,%f", theme->windowBg);
+        readColor("HeaderBg=%f,%f,%f,%f", theme->headerBg);
+        readColor("TitleBg=%f,%f,%f,%f", theme->titleBg);
+        readColor("TextRegular=%f,%f,%f,%f", theme->textRegular);
+    }
+}
+
+static void ThemeSettings_WriteAll(ImGuiContext* const ctx, ImGuiSettingsHandler* handler, ImGuiTextBuffer* const buf)
+{
+    UNUSED(ctx);
+
+    buf->reserve(buf->size() + 256);
+    buf->appendf("[%s][theme]\n", handler->TypeName);
+
+    const auto& t = g_pImGuiHandler->theme;
+    buf->appendf("AccentColor=%.4f,%.4f,%.4f,%.4f\n", t.accentColor.x, t.accentColor.y, t.accentColor.z, t.accentColor.w);
+    buf->appendf("AccentHovered=%.4f,%.4f,%.4f,%.4f\n", t.accentHovered.x, t.accentHovered.y, t.accentHovered.z, t.accentHovered.w);
+    buf->appendf("AccentActive=%.4f,%.4f,%.4f,%.4f\n", t.accentActive.x, t.accentActive.y, t.accentActive.z, t.accentActive.w);
+    buf->appendf("WindowBg=%.4f,%.4f,%.4f,%.4f\n", t.windowBg.x, t.windowBg.y, t.windowBg.z, t.windowBg.w);
+    buf->appendf("HeaderBg=%.4f,%.4f,%.4f,%.4f\n", t.headerBg.x, t.headerBg.y, t.headerBg.z, t.headerBg.w);
+    buf->appendf("TitleBg=%.4f,%.4f,%.4f,%.4f\n", t.titleBg.x, t.titleBg.y, t.titleBg.z, t.titleBg.w);
+    buf->appendf("TextRegular=%.4f,%.4f,%.4f,%.4f\n", t.textRegular.x, t.textRegular.y, t.textRegular.z, t.textRegular.w);
+    buf->append("\n");
+}
+
 // export settings
 static void* ExportSettings_ReadOpen(ImGuiContext* const ctx, ImGuiSettingsHandler* const handler, const char* const name)
 {
@@ -188,7 +244,7 @@ static void PreviewSettings_WriteAll(ImGuiContext* const ctx, ImGuiSettingsHandl
 {
     UNUSED(ctx);
 
-    buf->reserve(buf->size() + 64);
+    buf->reserve(buf->size() + 128);
     buf->appendf("[%s][general]\n", handler->TypeName);
     
     buf->appendf("PreviewCullDistance=%f\n",    g_PreviewSettings.previewCullDistance);
@@ -349,10 +405,19 @@ void ImGuiHandler::SetupHandler()
     previewSettingsHandler.ReadLineFn = PreviewSettings_ReadLine;
     previewSettingsHandler.WriteAllFn = PreviewSettings_WriteAll;
 
+    // theme/appearance settings
+    ImGuiSettingsHandler themeSettingsHandler = {};
+    themeSettingsHandler.TypeName = "ThemeSettings";
+    themeSettingsHandler.TypeHash = ImHashStr("ThemeSettings");
+    themeSettingsHandler.ReadOpenFn = ThemeSettings_ReadOpen;
+    themeSettingsHandler.ReadLineFn = ThemeSettings_ReadLine;
+    themeSettingsHandler.WriteAllFn = ThemeSettings_WriteAll;
+
     ImGui::AddSettingsHandler(&assetSettingsHandler);
     ImGui::AddSettingsHandler(&utilSettingsHandler);
     ImGui::AddSettingsHandler(&exportSettingsHandler);
     ImGui::AddSettingsHandler(&previewSettingsHandler);
+    ImGui::AddSettingsHandler(&themeSettingsHandler);
     ImGui::LoadIniSettingsFromDisk(io.IniFilename);
 }
 
@@ -366,7 +431,7 @@ void ImGuiHandler::SetStyle()
     config.OversampleV = 2;
 
     this->defaultFont = io.Fonts->AddFontFromMemoryCompressedTTF(SourceSansProRegular_compressed_data, sizeof(SourceSansProRegular_compressed_data), 18.f, NULL, io.Fonts->GetGlyphRangesDefault());
-    
+
     char* systemRootPath = nullptr;
     size_t systemRootPathLen = 0;
     assertm(_dupenv_s(&systemRootPath, &systemRootPathLen, "SYSTEMROOT") == 0, "couldn't get systemroot env var");
@@ -376,59 +441,139 @@ void ImGuiHandler::SetStyle()
     io.Fonts->AddFontFromFileTTF((fontsDir + "malgun.ttf").c_str(), 18.f, &config, io.Fonts->GetGlyphRangesJapanese());
     io.Fonts->AddFontFromFileTTF((fontsDir + "micross.ttf").c_str(), 18.f, &config, io.Fonts->GetGlyphRangesCyrillic());
 
+    ApplyTheme();
+}
+
+void ImGuiHandler::ApplyTheme()
+{
     ImGuiStyle& style = ImGui::GetStyle();
-    ImGui::StyleColorsDark(&style);
     ImVec4* colors = style.Colors;
 
-    colors[ImGuiCol_Text] = ImVec4(0.93f, 0.91f, 1.00f, 1.00f);
-    colors[ImGuiCol_TextDisabled] = ImVec4(0.45f, 0.40f, 0.60f, 1.00f);
-    colors[ImGuiCol_TextSelectedBg] = ImVec4(0.57f, 0.23f, 0.98f, 0.45f);
-    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.03f, 0.11f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.04f, 0.02f, 0.08f, 0.65f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.09f, 0.04f, 0.16f, 0.98f);
-    colors[ImGuiCol_Border] = ImVec4(0.41f, 0.26f, 0.64f, 0.90f);
-    colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.06f, 0.23f, 0.95f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.29f, 0.10f, 0.45f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.43f, 0.08f, 0.63f, 1.00f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.19f, 0.07f, 0.34f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.36f, 0.14f, 0.59f, 1.00f);
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.09f, 0.05f, 0.15f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.07f, 0.04f, 0.13f, 0.95f);
-    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.32f, 0.14f, 0.51f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.21f, 0.67f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.52f, 0.29f, 0.84f, 1.00f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.60f, 0.29f, 0.86f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.78f, 0.35f, 1.00f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.38f, 0.17f, 0.55f, 0.95f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.52f, 0.24f, 0.74f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.72f, 0.33f, 0.97f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.32f, 0.12f, 0.51f, 0.94f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.48f, 0.18f, 0.72f, 1.00f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.64f, 0.23f, 0.90f, 1.00f);
-    colors[ImGuiCol_Separator] = ImVec4(0.42f, 0.20f, 0.60f, 0.90f);
-    colors[ImGuiCol_ResizeGrip] = ImVec4(0.60f, 0.29f, 0.86f, 0.70f);
-    colors[ImGuiCol_Tab] = ImVec4(0.27f, 0.11f, 0.43f, 0.95f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.49f, 0.20f, 0.73f, 1.00f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.63f, 0.26f, 0.92f, 1.00f);
-    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.16f, 0.07f, 0.27f, 1.00f);
-    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.27f, 0.12f, 0.41f, 1.00f);
-    colors[ImGuiCol_TableBorderLight] = ImVec4(0.32f, 0.16f, 0.48f, 1.00f);
-    colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.10f, 0.05f, 0.18f, 1.00f);
-    colors[ImGuiCol_PlotHistogram] = ImVec4(0.78f, 0.35f, 1.00f, 1.00f);
+    const ThemeSettings_t& t = theme;
 
+    // Helper macro to darken a color
+    #define DARKEN(c, amt) ImVec4( \
+        (std::max)((c).x - (amt), 0.0f), \
+        (std::max)((c).y - (amt), 0.0f), \
+        (std::max)((c).z - (amt), 0.0f), \
+        (c).w)
+
+    colors[ImGuiCol_Text] = t.textRegular;
+    colors[ImGuiCol_TextDisabled] = ImVec4(t.textRegular.x * 0.6f, t.textRegular.y * 0.6f, t.textRegular.z * 0.6f, t.textRegular.w * 0.6f);
+    colors[ImGuiCol_TextSelectedBg] = ImVec4(t.accentColor.x * 0.3f, t.accentColor.y * 0.3f, t.accentColor.z * 0.3f, 0.5f);
+    colors[ImGuiCol_WindowBg] = t.windowBg;
+    colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_PopupBg] = ImVec4(t.windowBg.x * 1.1f, t.windowBg.y * 1.1f, t.windowBg.z * 1.1f, 1.0f);
+    colors[ImGuiCol_Border] = DARKEN(t.accentColor, 0.3f);
+    colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_FrameBg] = DARKEN(t.windowBg, 0.1f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(t.windowBg.x - 0.05f, t.windowBg.y - 0.05f, t.windowBg.z - 0.05f, 1.0f);
+    colors[ImGuiCol_FrameBgActive] = t.accentColor;
+    colors[ImGuiCol_TitleBg] = t.titleBg;
+    colors[ImGuiCol_TitleBgActive] = t.accentActive;
+    colors[ImGuiCol_TitleBgCollapsed] = DARKEN(t.titleBg, 0.2f);
+    colors[ImGuiCol_MenuBarBg] = DARKEN(t.windowBg, 0.1f);
+    colors[ImGuiCol_ScrollbarBg] = DARKEN(t.windowBg, 0.15f);
+    colors[ImGuiCol_ScrollbarGrab] = t.accentColor;
+    colors[ImGuiCol_ScrollbarGrabHovered] = t.accentHovered;
+    colors[ImGuiCol_ScrollbarGrabActive] = t.accentActive;
+    colors[ImGuiCol_CheckMark] = t.accentColor;
+    colors[ImGuiCol_SliderGrab] = t.accentColor;
+    colors[ImGuiCol_SliderGrabActive] = t.accentActive;
+    colors[ImGuiCol_Button] = t.accentColor;
+    colors[ImGuiCol_ButtonHovered] = t.accentHovered;
+    colors[ImGuiCol_ButtonActive] = t.accentActive;
+    colors[ImGuiCol_Header] = t.headerBg;
+    colors[ImGuiCol_HeaderHovered] = t.accentHovered;
+    colors[ImGuiCol_HeaderActive] = t.accentActive;
+    colors[ImGuiCol_Separator] = DARKEN(t.accentColor, 0.3f);
+    colors[ImGuiCol_SeparatorHovered] = t.accentHovered;
+    colors[ImGuiCol_SeparatorActive] = t.accentActive;
+    colors[ImGuiCol_ResizeGrip] = t.accentColor;
+    colors[ImGuiCol_ResizeGripHovered] = t.accentHovered;
+    colors[ImGuiCol_ResizeGripActive] = t.accentActive;
+    colors[ImGuiCol_Tab] = t.headerBg;
+    colors[ImGuiCol_TabHovered] = t.accentHovered;
+    colors[ImGuiCol_TabActive] = t.accentActive;
+    colors[ImGuiCol_TabUnfocused] = DARKEN(t.headerBg, 0.2f);
+    colors[ImGuiCol_TabUnfocusedActive] = DARKEN(t.accentColor, 0.1f);
+    colors[ImGuiCol_PlotLines] = t.accentColor;
+    colors[ImGuiCol_PlotLinesHovered] = t.accentHovered;
+    colors[ImGuiCol_PlotHistogram] = t.accentColor;
+    colors[ImGuiCol_PlotHistogramHovered] = t.accentHovered;
+    colors[ImGuiCol_TableHeaderBg] = DARKEN(t.windowBg, 0.15f);
+    colors[ImGuiCol_TableBorderStrong] = t.accentColor;
+    colors[ImGuiCol_TableBorderLight] = DARKEN(t.accentColor, 0.2f);
+    colors[ImGuiCol_TableRowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_TableRowBgAlt] = DARKEN(t.windowBg, 0.1f);
+    colors[ImGuiCol_DragDropTarget] = t.accentColor;
+    colors[ImGuiCol_NavHighlight] = t.accentColor;
+    colors[ImGuiCol_NavWindowingHighlight] = t.accentColor;
+    colors[ImGuiCol_NavWindowingDimBg] = ImVec4(t.windowBg.x * 0.5f, t.windowBg.y * 0.5f, t.windowBg.z * 0.5f, 0.6f);
+    colors[ImGuiCol_ModalWindowDimBg] = ImVec4(t.windowBg.x * 0.4f, t.windowBg.y * 0.4f, t.windowBg.z * 0.4f, 0.7f);
+
+    // Style rounding and sizes
     style.WindowBorderSize = 1.0f;
     style.FrameBorderSize = 0.0f;
     style.ChildBorderSize = 0.0f;
     style.PopupBorderSize = 1.0f;
-    style.TabBorderSize = 0.0f;
+    style.TabBorderSize = 1.0f;
 
-    style.WindowRounding = 6.0f;
-    style.FrameRounding = 3.0f;
-    style.ChildRounding = 3.0f;
-    style.PopupRounding = 4.0f;
-    style.TabRounding = 3.0f;
-    style.ScrollbarRounding = 5.0f;
+    style.WindowRounding = 4.0f;
+    style.FrameRounding = 1.0f;
+    style.ChildRounding = 1.0f;
+    style.PopupRounding = 3.0f;
+    style.TabRounding = 1.0f;
+    style.ScrollbarRounding = 3.0f;
+}
+
+void ImGuiHandler::ShowThemeEditor()
+{
+    if (!theme.showThemeEditor)
+        return;
+
+    if (ImGui::Begin("Theme Editor", &theme.showThemeEditor))
+    {
+        ImGui::Text("Customize the appearance of RSX");
+        ImGui::Separator();
+
+        bool colorChanged = false;
+
+        ImGui::Text("Accent Colors");
+        colorChanged |= ImGui::ColorEdit4("Primary", &theme.accentColor.x);
+        colorChanged |= ImGui::ColorEdit4("Hovered", &theme.accentHovered.x);
+        colorChanged |= ImGui::ColorEdit4("Active", &theme.accentActive.x);
+
+        ImGui::Separator();
+        ImGui::Text("Background Colors");
+        colorChanged |= ImGui::ColorEdit4("Window/Popup", &theme.windowBg.x);
+        colorChanged |= ImGui::ColorEdit4("Header/Title", &theme.headerBg.x);
+        colorChanged |= ImGui::ColorEdit4("Title Bar", &theme.titleBg.x);
+
+        ImGui::Separator();
+        ImGui::Text("Text");
+        colorChanged |= ImGui::ColorEdit4("Regular", &theme.textRegular.x);
+
+        if (colorChanged)
+            ApplyTheme();
+
+        ImGui::Separator();
+        if (ImGui::Button("Reset to Default"))
+        {
+            theme.accentColor = ImVec4(0.45f, 0.30f, 0.70f, 1.00f);
+            theme.accentHovered = ImVec4(0.50f, 0.35f, 0.80f, 1.00f);
+            theme.accentActive = ImVec4(0.55f, 0.40f, 0.85f, 1.00f);
+            theme.windowBg = ImVec4(0.12f, 0.10f, 0.15f, 1.00f);
+            theme.headerBg = ImVec4(0.35f, 0.25f, 0.55f, 0.60f);
+            theme.titleBg = ImVec4(0.35f, 0.25f, 0.55f, 1.00f);
+            theme.textRegular = ImVec4(0.85f, 0.85f, 0.90f, 1.00f);
+            ApplyTheme();
+        }
+
+        ImGui::Separator();
+        ImGui::TextDisabled("Theme changes are saved automatically");
+    }
+    ImGui::End();
 }
 
 void ImGuiHandler::HelpMarker(const char* const desc)
@@ -493,8 +638,6 @@ void ImGuiHandler::FinishProgressBarEvent(const ProgressBarEvent_t* const event)
     pbAvailSlots.push(eventIdx);
 }
 
-// RequestFinishProgressEvent removed
-
 void ImGuiHandler::HandleProgressBar()
 {
     // If the app is running without ImGui being initialised, don't try and run this method
@@ -502,7 +645,6 @@ void ImGuiHandler::HandleProgressBar()
         return;
 
     std::unique_lock<std::mutex> lock(eventMutex);
-
 
     bool foundTopLevelBar = false;
     for (int i = 0; i < PB_SIZE; ++i)
@@ -518,12 +660,7 @@ void ImGuiHandler::HandleProgressBar()
             ImGui::SetNextWindowSize(ImVec2(0, 0));
             ImGui::SetNextWindowPos(viewportCenter, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-            constexpr ImGuiWindowFlags progressFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
-                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse |
-                ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoInputs;
-
-            // prevent the transient progress window from stealing focus away from active widgets (e.g., the search bar)
-            if (!ImGui::Begin(event->eventName, nullptr, progressFlags))
+            if (!ImGui::Begin(event->eventName, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse))
                 continue;
         }
         else

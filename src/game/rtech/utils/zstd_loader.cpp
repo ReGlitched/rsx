@@ -162,20 +162,13 @@ namespace RTechZstd
 
         ZSTD_DCtx* ctx = g_bindings.createCtx();
         if (!ctx)
-        {
-            Log("RSX: Zstd decoder failed to allocate a context.\n");
             return false;
-        }
 
         const size_t result = g_bindings.decompressCtx(ctx, dst, dstCapacity, src, srcSize);
         g_bindings.freeCtx(ctx);
 
         if (g_bindings.isError(result))
-        {
-            const char* errName = g_bindings.getErrorName(result);
-            Log("RSX: Zstd decode failed (%s).\n", errName ? errName : "unknown");
             return false;
-        }
 
         decodedBytes = result;
         return true;

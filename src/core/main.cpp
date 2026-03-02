@@ -254,10 +254,6 @@ int main(int argc, char* argv[])
 
     g_cacheDBManager.LoadFromFile((std::filesystem::current_path() / "rsx_cache_db.bin").string());
 
-    // Ensure file associations for .rpak/.mbnk are registered for this user so
-    // double-clicking those files will open them in rsx.
-    RegisterFileAssociationsIfNeeded();
-
     // init pak asset types
     HandleAssetRegistration(&cli);
 
@@ -287,8 +283,8 @@ int main(int argc, char* argv[])
         UpdateWindow(windowHandle);
 
         ImGui::CreateContext();
-        g_pImGuiHandler->SetStyle();
         g_pImGuiHandler->SetupHandler();
+        g_pImGuiHandler->SetStyle();
 
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/utils/cli_parser.h>
+#include <filesystem>
 
 struct ExportSettings_t
 {
@@ -115,5 +116,4 @@ struct PreviewSettings_t
 {
     float previewCullDistance; // currently can only be set on load, which is not ideal
     float previewMovementSpeed;
-    // (no preview gamma fields)
 };

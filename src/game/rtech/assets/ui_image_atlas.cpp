@@ -647,7 +647,7 @@ bool ExportUIImageAtlasAsset(CAsset* const asset, const int setting)
         auto JsonEscape = [](const std::string& s) -> std::string
         {
             std::string escaped;
-            escaped.reserve(s.size() * 1.2); // Reserve some extra space
+            escaped.reserve(s.size() + s.size() / 5); // Reserve ~1.2x space
 
             for (char c : s)
             {
