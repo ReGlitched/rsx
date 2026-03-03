@@ -130,13 +130,61 @@ static void HandleExportBindingForAssetEx(CAsset* const asset)
     }
 }
 
-FORCEINLINE void HandleExportBindingForAsset(CAsset* const asset, const bool exportDependencies)
+FORCEINLINE void HandleExportBindingForAsset(CAsset* const asset, const bool exportDependencies, const bool exportDependents)
 {
-    // only pak assets have dependencies so don't try to export them with other types
-    if (asset->GetAssetContainerType() == CAsset::ContainerType::PAK && exportDependencies)
+    // only pak assets have dependencies/dependents so don't try to export them with other types
+    if (asset->GetAssetContainerType() == CAsset::ContainerType::PAK && (exportDependencies || exportDependents))
     {
         std::deque<CPakAsset*> cpyAssets;
-        TraverseAssetDependencies(static_cast<CPakAsset*>(asset), cpyAssets);
+        CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
+
+        // Add the asset itself first
+        cpyAssets.emplace_back(pakAsset);
+
+        // Add dependencies (recursive)
+        if (exportDependencies)
+        {
+            std::vector<AssetGuid_t> dependencies;
+            pakAsset->getDependencies(dependencies);
+
+            for (int d = 0; d < dependencies.size(); ++d)
+            {
+                const AssetGuid_t guid = dependencies[d];
+                CPakAsset* const depAsset = g_assetData.FindAssetByGUID<CPakAsset>(guid.guid);
+
+                if (!depAsset)
+                    continue;
+
+                if (std::find(cpyAssets.begin(), cpyAssets.end(), depAsset) == cpyAssets.end())
+                {
+                    cpyAssets.emplace_back(depAsset);
+                    // Recursively add dependencies of this dependency
+                    TraverseAssetDependencies(depAsset, cpyAssets);
+                }
+            }
+        }
+
+        // Add direct dependents only (non-recursive to prevent infinite loops)
+        if (exportDependents)
+        {
+            std::vector<AssetGuid_t> dependents;
+            pakAsset->getDependents(dependents);
+
+            for (int d = 0; d < dependents.size(); ++d)
+            {
+                const AssetGuid_t guid = dependents[d];
+                CPakAsset* const depAsset = g_assetData.FindAssetByGUID<CPakAsset>(guid.guid);
+
+                if (!depAsset)
+                    continue;
+
+                if (std::find(cpyAssets.begin(), cpyAssets.end(), depAsset) == cpyAssets.end())
+                {
+                    cpyAssets.emplace_back(depAsset);
+                    // Do NOT recursively add dependents of dependents
+                }
+            }
+        }
 
         for (CPakAsset* const dependency : cpyAssets)
         {
@@ -147,7 +195,7 @@ FORCEINLINE void HandleExportBindingForAsset(CAsset* const asset, const bool exp
         HandleExportBindingForAssetEx(asset);
 }
 
-void HandlePakAssetExportList(std::deque<CAsset*> selectedAssets, const bool exportDependencies)
+void HandlePakAssetExportList(std::deque<CAsset*> selectedAssets, const bool exportDependencies, const bool exportDependents)
 {
     assertm(selectedAssets.size() > 0, "selectedAssets is empty.");
 
@@ -155,10 +203,11 @@ void HandlePakAssetExportList(std::deque<CAsset*> selectedAssets, const bool exp
 
     for (auto& asset : selectedAssets)
     {
-        parallelProcessTask.addTask([&asset, exportDependencies]
-            {
-                HandleExportBindingForAsset(asset, exportDependencies);
-            }, 1u);
+        std::function<void()> task = [asset, exportDependencies, exportDependents]
+        {
+            HandleExportBindingForAsset(asset, exportDependencies, exportDependents);
+        };
+        parallelProcessTask.addTask(task, 1u);
     }
 
     const ProgressBarEvent_t* const exportAssetListEvent = g_pImGuiHandler->AddProgressBarEvent(
@@ -173,7 +222,7 @@ void HandlePakAssetExportList(std::deque<CAsset*> selectedAssets, const bool exp
 
 
 
-void HandleExportAllPakAssets(std::vector<CGlobalAssetData::AssetLookup_t>* const pakAssets, const bool exportDependencies)
+void HandleExportAllPakAssets(std::vector<CGlobalAssetData::AssetLookup_t>* const pakAssets, const bool exportDependencies, const bool exportDependents)
 {
     assertm(g_assetData.v_assetContainers.size() > 0, "No paks loaded.");
     assertm(pakAssets->size() > 0, "No assets?");
@@ -182,10 +231,11 @@ void HandleExportAllPakAssets(std::vector<CGlobalAssetData::AssetLookup_t>* cons
 
     for (auto& asset : *pakAssets)
     {
-        parallelProcessTask.addTask([asset, exportDependencies]
-            {
-                HandleExportBindingForAsset(asset.m_asset, exportDependencies);
-            }, 1u);
+        std::function<void()> task = [asset, exportDependencies, exportDependents]
+        {
+            HandleExportBindingForAsset(asset.m_asset, exportDependencies, exportDependents);
+        };
+        parallelProcessTask.addTask(task, 1u);
     }
 
     const ProgressBarEvent_t* const exportAllAssetsEvent = g_pImGuiHandler->AddProgressBarEvent(
@@ -199,7 +249,7 @@ void HandleExportAllPakAssets(std::vector<CGlobalAssetData::AssetLookup_t>* cons
     g_pImGuiHandler->FinishProgressBarEvent(exportAllAssetsEvent);
 }
 
-void HandleExportSelectedAssetType(std::vector<CGlobalAssetData::AssetLookup_t> pakAssets, const bool exportDependencies)
+void HandleExportSelectedAssetType(std::vector<CGlobalAssetData::AssetLookup_t> pakAssets, const bool exportDependencies, const bool exportDependents)
 {
-    HandleExportAllPakAssets(&pakAssets, exportDependencies);
+    HandleExportAllPakAssets(&pakAssets, exportDependencies, exportDependents);
 }
