@@ -14,6 +14,7 @@ struct ExportSettings_t
     // misc
     bool exportPathsFull;
     bool exportAssetDeps;
+    bool exportAssetDependents;
     bool disableCachedNames;
 
     // model settings
