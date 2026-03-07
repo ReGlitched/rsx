@@ -239,48 +239,55 @@ ENABLE_WARNING();
 
 struct RBitRead
 {
-	unsigned __int64 m_dataBuf;
-	uint32_t m_bitsUnoccupied; // number of bits that do not contain data
+	unsigned __int64 dataBuf;
+	uint32_t numBitsUnoccupied; // number of bits that do not contain data
 
-	RBitRead() : m_dataBuf(0), m_bitsUnoccupied(64) {};
+	RBitRead() : dataBuf(0), numBitsUnoccupied(64) {};
 
-	// get number of "free" bits in the buffer
-	FORCEINLINE uint32_t BitsAvailable() const { return m_bitsUnoccupied; };
+	// Get the number of bits in the BitBuf internal buffer that are not in use
+	FORCEINLINE uint32_t NumBitsUnoccupied() const { return numBitsUnoccupied; };
 
-	FORCEINLINE void ConsumeData(unsigned __int64 input, unsigned int numBits = 64)
+	// Take N bits from an external QWORD and store them in the BitBuf internal buffer
+	// N: [0..NumBitsUnoccupied()]
+	FORCEINLINE void ReadNBitsFromInputBuf(unsigned __int64 input, unsigned int numBits = 64)
 	{
-		if (numBits > BitsAvailable()) UNLIKELY
+		if (numBits > NumBitsUnoccupied()) UNLIKELY
 		{
-			assert(false && "RBitRead::ConsumeData: numBits must be less than or equal to m_bitsAvailable.");
+			assert(false && "RBitRead::ConsumeData: numBits must be less than or equal to numBitsUnoccupied.");
 			return;
 		}
 
-		m_dataBuf |= input << (64 - numBits);
+		dataBuf |= input << (64 - numBits);
 	}
 
-	FORCEINLINE void ConsumeData(void* input, unsigned int numBits = 64)
+	// Take N bits from an external buffer and store them in the BitBuf internal buffer
+	// N: [0..NumBitsUnoccupied()]
+	FORCEINLINE void ReadNBitsFromInputBuf(void* input, unsigned int numBits = 64)
 	{
-		if (numBits > BitsAvailable()) UNLIKELY
+		if (numBits > NumBitsUnoccupied()) UNLIKELY
 		{
-			assert(false && "RBitRead::ConsumeData: numBits must be less than or equal to m_bitsAvailable.");
+			assert(false && "RBitRead::ConsumeData: numBits must be less than or equal to numBitsUnoccupied.");
 			return;
 		}
 
-		m_dataBuf |= *reinterpret_cast<unsigned __int64*>(input) << (64 - numBits);
+		dataBuf |= *reinterpret_cast<unsigned __int64*>(input) << (64 - numBits);
 	}
 
-
-	FORCEINLINE unsigned __int64 ReadBits(unsigned int numBits)
+	// Get N bits from the BitBuf internal buffer
+	// N: [0..64]
+	FORCEINLINE unsigned __int64 ReadStoredBits(unsigned int numBits)
 	{
 		assert(numBits <= 64 && "RBitRead::ReadBits: numBits must be less than or equal to 64.");
-		return m_dataBuf & ((1ull << numBits) - 1);
+		return dataBuf & ((1ull << numBits) - 1);
 	}
 
-	FORCEINLINE void DiscardBits(unsigned int numBits)
+	// Remove N bits from the BitBuf internal buffer and shift the remaining bits down to fill the gap
+	// N: [0..64]
+	FORCEINLINE void DiscardStoredBits(unsigned int numBits)
 	{
 		assert(numBits <= 64 && "RBitRead::DiscardBits: numBits must be less than or equal to 64.");
-		this->m_dataBuf >>= numBits;
-		this->m_bitsUnoccupied += numBits;
+		this->dataBuf >>= numBits;
+		this->numBitsUnoccupied += numBits;
 	}
 };
 

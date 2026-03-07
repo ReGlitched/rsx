@@ -842,31 +842,31 @@ const bool CPakFile::DecodePatchCommands()
         int8_t cmd = 0;
         if (p.numBytesToPatch == 0)
         {
-            bitbuf->ConsumeData(patchStreamCursor, bitbuf->BitsAvailable());
+            bitbuf->ReadNBitsFromInputBuf(patchStreamCursor, bitbuf->NumBitsUnoccupied());
 
             // advance patch data buffer by the number of bytes that have just been fetched
-            this->patchStreamCursor = &patchStreamCursor[bitbuf->BitsAvailable() >> 3];
+            this->patchStreamCursor = &patchStreamCursor[bitbuf->NumBitsUnoccupied() >> 3];
 
             // store the number of bits remaining to complete the data read
-            bitbuf->m_bitsUnoccupied = bitbuf->BitsAvailable() & 7; // number of bits above a whole byte
+            bitbuf->numBitsUnoccupied = bitbuf->NumBitsUnoccupied() & 7; // number of bits above a whole byte
 
-            cmd = p.commands[bitbuf->ReadBits(6)];
+            cmd = p.commands[bitbuf->ReadStoredBits(6)];
 
-            bitbuf->DiscardBits(p.unk[bitbuf->ReadBits(6)]);
+            bitbuf->DiscardStoredBits(p.unk[bitbuf->ReadStoredBits(6)]);
 
             // get the next patch function to execute
             p.patchFunc = g_pakPatchApi[cmd];
 
             if (cmd <= 3u)
             {
-                const int index = static_cast<int>(bitbuf->ReadBits(8));
+                const int index = static_cast<int>(bitbuf->ReadStoredBits(8));
                 const uint8_t bitExponent = p.unk2[index]; // number of stored bits for the data size
 
-                bitbuf->DiscardBits(p.unk3[index]);
+                bitbuf->DiscardStoredBits(p.unk3[index]);
 
-                p.numBytesToPatch = (1ull << bitExponent) + bitbuf->ReadBits(bitExponent);
+                p.numBytesToPatch = (1ull << bitExponent) + bitbuf->ReadStoredBits(bitExponent);
 
-                bitbuf->DiscardBits(bitExponent);
+                bitbuf->DiscardStoredBits(bitExponent);
             }
             else
             {
@@ -899,11 +899,11 @@ void CPakFile::ParsePatchEditStream()
     buf = &buf[PakPatch_DecodeData(buf, 6, p.commands, p.unk)];
     buf = &buf[PakPatch_DecodeData(buf, 8, p.unk2, p.unk3)];
 
-    this->p.bitbuf.ConsumeData(buf, 64);
-    this->p.bitbuf.m_bitsUnoccupied = 0;
+    this->p.bitbuf.ReadNBitsFromInputBuf(buf, 64);
+    this->p.bitbuf.numBitsUnoccupied = 0;
 
-    const uint32_t patchDataOffset = static_cast<uint32_t>(this->p.bitbuf.ReadBits(24));
-    this->p.bitbuf.DiscardBits(24); // clear 24 bits from the offset we have just read
+    const uint32_t patchDataOffset = static_cast<uint32_t>(this->p.bitbuf.ReadStoredBits(24));
+    this->p.bitbuf.DiscardStoredBits(24);
 
     p.patchReplacementData = buf + patchDataOffset; // offset to actual patch data
     this->patchStreamCursor = buf + sizeof(uint64_t);
