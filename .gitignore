@@ -360,5 +360,7 @@ rsx_cache_db.bin
 # Misc
 *.json
 !vcpkg*.json
+radaudio.lib
+binka_ue_decode_*.lib
 
 vcpkg_installed/*

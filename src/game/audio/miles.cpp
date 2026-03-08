@@ -118,7 +118,10 @@ const bool CMilesAudioBank::ParseFromHeader()
 			MilesSource_t* const sourceAssetData = new MilesSource_t(source);
 
 			if (!IsValidSource(sourceAssetData))
+			{
+				delete sourceAssetData;
 				continue;
+			}
 
 			const char* const sourceName = this->GetString(sourceAssetData->nameOffset);
 
@@ -160,7 +163,10 @@ const bool CMilesAudioBank::ParseFromHeader()
 			MilesSource_t* const sourceAssetData = new MilesSource_t(source);
 
 			if (!IsValidSource(sourceAssetData))
+			{
+				delete sourceAssetData;
 				continue;
+			}
 
 			const char* const sourceName = this->GetString(sourceAssetData->nameOffset);
 
@@ -201,7 +207,10 @@ const bool CMilesAudioBank::ParseFromHeader()
 			MilesSource_t* const sourceAssetData = new MilesSource_t(source);
 
 			if (!IsValidSource(sourceAssetData))
+			{
+				delete sourceAssetData;
 				continue;
+			}
 
 			const char* sourceNameStringTable = reinterpret_cast<char*>(this->audioSources) + (sizeof(MilesSource_v48_t) * this->sourceCount);
 
