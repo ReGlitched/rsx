@@ -593,6 +593,14 @@ bool CDXParentHandler::CreateMainView(const uint16_t w, const uint16_t h)
             assertm(false, "Failed to create rasterizer state.");
             return false;
         }
+
+        desc.FillMode = D3D11_FILL_WIREFRAME;
+
+        if (FAILED(m_pDevice->CreateRasterizerState(&desc, &m_pRasterizerStateWF)))
+        {
+            assertm(false, "Failed to create wireframe rasterizer state.");
+            return false;
+        }
     }
 
     {
@@ -729,6 +737,7 @@ void CDXParentHandler::CleanupD3D()
     DX_RELEASE_PTR(m_pDepthStencilView);
     DX_RELEASE_PTR(m_pDepthStencilState);
     DX_RELEASE_PTR(m_pRasterizerState);
+    DX_RELEASE_PTR(m_pRasterizerStateWF);
     DX_RELEASE_PTR(m_pSamplerState);
     DX_RELEASE_PTR(m_pSamplerCmpState);
 

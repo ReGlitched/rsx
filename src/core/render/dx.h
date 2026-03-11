@@ -89,9 +89,10 @@ struct DXMeshDrawData_t
     Vector modelMins;
     Vector modelMaxs;
 
-    bool visible;
-    bool doFrustumCulling;
-    bool hasGameShaders;
+    bool visible : 1;
+    bool doFrustumCulling : 1;
+    bool hasGameShaders : 1;
+    bool wireframe : 1;
 };
 
 struct VS_TransformConstants
@@ -329,6 +330,7 @@ public:
     inline ID3D11DepthStencilView* GetDepthStencilView() const { return m_pDepthStencilView; };
     inline ID3D11DepthStencilState* GetDepthStencilState() { return m_pDepthStencilState; };
     inline ID3D11RasterizerState* GetRasterizerState() const { return m_pRasterizerState; };
+    inline ID3D11RasterizerState* GetRasterizerStateWireFrame() const { return m_pRasterizerStateWF; };
     inline ID3D11SamplerState* GetSamplerState() const { return m_pSamplerState; };
     inline ID3D11SamplerState* GetSamplerComparisonState() const { return m_pSamplerCmpState; };
 
@@ -379,6 +381,7 @@ private:
     ID3D11DepthStencilView* m_pDepthStencilView;
     ID3D11DepthStencilState* m_pDepthStencilState; // depth enabled
     ID3D11RasterizerState* m_pRasterizerState; // main rasterizer state
+    ID3D11RasterizerState* m_pRasterizerStateWF; // main rasterizer state
     ID3D11SamplerState* m_pSamplerState;
     ID3D11SamplerState* m_pSamplerCmpState; // sampler comparison state because obviously we need this?
 

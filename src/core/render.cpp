@@ -915,6 +915,8 @@ void HandleRenderFrame()
                 if (!meshDrawData.visible || !meshDrawData.vertexShader || !meshDrawData.pixelShader)
                     continue;
 
+                ctx->RSSetState(meshDrawData.wireframe ? g_dxHandler->GetRasterizerStateWireFrame() : g_dxHandler->GetRasterizerState());
+
                 assertm(meshDrawData.vertexShader != nullptr, "No vertex shader?");
                 assertm(meshDrawData.pixelShader  != nullptr, "No pixel shader?");
 
