@@ -492,6 +492,8 @@ void MainWnd_WelcomeBox()
     }
 }
 
+static ImVec2 s_previousAvailableSizeForPreview(-1, -1);
+
 void HandleRenderFrame()
 {
     ImGui_ImplDX11_NewFrame();
@@ -501,8 +503,22 @@ void HandleRenderFrame()
     // create a docking area across the entire viewport
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DockingEnable)
     {
-        ImGui::SetNextWindowBgAlpha(0.f);
-        ImGui::DockSpaceOverViewport(0, NULL, ImGuiDockNodeFlags_PassthruCentralNode, 0);
+        const ImGuiID dockspaceId = ImGui::GetID("MainDockSpace");
+
+        // If the dockspace hasn't been created yet
+        if (ImGui::DockBuilderGetNode(dockspaceId) == nullptr)
+        {
+            DockBuilder(dockspaceId)
+                .Window("Scene", true)
+                .DockLeft(0.25f)
+                    .Window("Asset List")
+                    .Done()
+                .DockRight(0.25f)
+                    .Window("Asset Info");
+        }
+        //ImGui::SetNextWindowBgAlpha(0.f);
+        ImGui::DockSpaceOverViewport(dockspaceId, NULL, ImGuiDockNodeFlags_PassthruCentralNode, 0);
+
     }
 
     // while ImGui is using keyboard input, we should not accept any keyboard input, but we should also clear all  
@@ -526,292 +542,465 @@ void HandleRenderFrame()
 
     MainWnd_WelcomeBox();
 
-    // [rexx]: i hate that this has to be declared here, but it's used in the next if statement, and then immediately after it as well
     CDXDrawData* previewDrawData = nullptr;
 
     static size_t prevAssetCount = g_assetData.v_assets.size();
-    // Only render window if we have a pak loaded and if we aren't currently in pakload.
-    if (!inJobAction && !g_assetData.v_assetContainers.empty())
-    {
-        ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Asset List", nullptr, ImGuiWindowFlags_MenuBar))
-        {
-            std::vector<CGlobalAssetData::AssetLookup_t>& pakAssets = FilterConfig->textFilter.IsActive() ? s_filteredAssets : g_assetData.v_assets;
 
-            if (ImGui::BeginMenuBar())
+    const bool shouldPopulateAssetWindows = !inJobAction && !g_assetData.v_assetContainers.empty();
+
+    if (ImGui::Begin("Asset List", nullptr, ImGuiWindowFlags_MenuBar) && shouldPopulateAssetWindows)
+    {
+
+        std::vector<CGlobalAssetData::AssetLookup_t>& pakAssets = FilterConfig->textFilter.IsActive() ? s_filteredAssets : g_assetData.v_assets;
+
+        if (ImGui::BeginMenuBar())
+        {
+            if (ImGui::BeginMenu("Export"))
+            {
+                const bool multipleAssetsSelected = s_selectedAssets.size() > 1;
+
+                if (ImGui::Selectable(multipleAssetsSelected ? "Export selected assets" : "Export selected asset"))
+                {
+                    if (!s_selectedAssets.empty())
+                    {
+                        std::deque<CAsset*> cpyAssets;
+                        cpyAssets.insert(cpyAssets.end(), s_selectedAssets.begin(), s_selectedAssets.end());
+                        CThread(HandlePakAssetExportList, std::move(cpyAssets), g_ExportSettings.exportAssetDeps).detach();
+                        s_selectedAssets.clear();
+                    }
+                }
+
+                if (ImGui::Selectable("Export all for selected type", false, multipleAssetsSelected ? ImGuiSelectableFlags_Disabled : 0))
+                {
+                    if (s_selectedAssets.size() == 1)
+                    {
+                        const uint32_t desiredType = s_selectedAssets[0]->GetAssetType();
+                        auto allAssetsOfDesiredType = pakAssets | std::ranges::views::filter([desiredType](const CGlobalAssetData::AssetLookup_t& a)
+                            {
+                                return a.m_asset->GetAssetType() == desiredType;
+                            });
+
+                        std::vector<CGlobalAssetData::AssetLookup_t> allAssets(allAssetsOfDesiredType.begin(), allAssetsOfDesiredType.end());
+                        CThread(HandleExportSelectedAssetType, std::move(allAssets), g_ExportSettings.exportAssetDeps).detach();
+                        s_selectedAssets.clear();
+                    }
+                }
+
+                if (ImGui::Selectable("Export all for selected pak", false, multipleAssetsSelected ? ImGuiSelectableFlags_Disabled : 0))
+                {
+                    if (s_selectedAssets.size() == 1 && s_selectedAssets[0]->GetAssetContainerType() == CAsset::ContainerType::PAK)
+                    {
+                        const CPakFile* desiredPak = s_selectedAssets[0]->GetContainerFile<const CPakFile>();
+                        auto allAssetsOfDesiredType = pakAssets | std::ranges::views::filter([desiredPak](const CGlobalAssetData::AssetLookup_t& a)
+                            {
+                                return a.m_asset->GetAssetContainerType() == CAsset::ContainerType::PAK && a.m_asset->GetContainerFile<const CPakFile>() == desiredPak;
+                            });
+
+                        std::vector<CGlobalAssetData::AssetLookup_t> allAssets(allAssetsOfDesiredType.begin(), allAssetsOfDesiredType.end());
+                        CThread(HandleExportSelectedAssetType, std::move(allAssets), g_ExportSettings.exportAssetDeps).detach();
+                        s_selectedAssets.clear();
+                    }
+                }
+
+                if (ImGui::Selectable("Export all for selected pak and type", false, multipleAssetsSelected ? ImGuiSelectableFlags_Disabled : 0))
+                {
+                    if (s_selectedAssets.size() == 1 && s_selectedAssets[0]->GetAssetContainerType() == CAsset::ContainerType::PAK)
+                    {
+                        const CPakFile* desiredPak = s_selectedAssets[0]->GetContainerFile<const CPakFile>();
+                        const uint32_t desiredType = s_selectedAssets[0]->GetAssetType();
+                        auto allAssetsOfDesiredType = pakAssets | std::ranges::views::filter([desiredPak, desiredType](const CGlobalAssetData::AssetLookup_t& a)
+                            {
+                                return a.m_asset->GetAssetContainerType() == CAsset::ContainerType::PAK
+                                    && a.m_asset->GetContainerFile<CPakFile>() == desiredPak
+                                    && a.m_asset->GetAssetType() == desiredType;
+                            });
+
+                        std::vector<CGlobalAssetData::AssetLookup_t> allAssets(allAssetsOfDesiredType.begin(), allAssetsOfDesiredType.end());
+                        CThread(HandleExportSelectedAssetType, std::move(allAssets), g_ExportSettings.exportAssetDeps).detach();
+                        s_selectedAssets.clear();
+                    }
+                }
+
+                if (ImGui::Selectable("Export all"))
+                    CThread(HandleExportAllPakAssets, &pakAssets, g_ExportSettings.exportAssetDeps).detach();
+
+                // Exports the names of all assets in the currently shown filtered asset list (i.e., search results)
+                if (ImGui::Selectable("Export list of asset names..."))
+                    CThread(HandleListExportPakAssets, g_dxHandler->GetWindowHandle(), &pakAssets).detach();
+
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenuBar();
+        }
+
+        // OR case if we load a pak and the filter is not cleared yet.
+        if (FilterConfig->textFilter.Draw("##Filter", -1.f) || (s_filteredAssets.empty() && FilterConfig->textFilter.IsActive()) || prevAssetCount != g_assetData.v_assets.size())
+        {
+            s_filteredAssets.clear();
+            for (auto& it : g_assetData.v_assets)
+            {
+                const std::string& assetName = it.m_asset->GetAssetName();
+
+                if (FilterConfig->textFilter.PassFilter(assetName.c_str()))
+                    s_filteredAssets.push_back(it);
+                else
+                {
+                    const char* const inputText = FilterConfig->textFilter.inputBuf.c_str();
+                    const size_t inputLen = FilterConfig->textFilter.inputBuf.size();
+
+                    char* end;
+                    const uint64_t guid = strtoull(inputText, &end, 0);
+
+                    if (end == &inputText[inputLen])
+                    {
+                        if (guid == RTech::StringToGuid(assetName.c_str()))
+                            s_filteredAssets.push_back(it);
+                    }
+                }
+            }
+
+            // Shrink capacity to match new size.
+            s_filteredAssets.shrink_to_fit();
+        }
+
+        constexpr int numColumns = AssetColumn_t::_AC_COUNT;
+        if (ImGui::BeginTable("Assets", numColumns, ImGuiTableFlags_Hideable | ImGuiTableFlags_Sortable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_BordersOuterV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable))
+        {
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 0, AssetColumn_t::AC_Type);
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 0, AssetColumn_t::AC_Name);
+            ImGui::TableSetupColumn("GUID", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide, 0, AssetColumn_t::AC_GUID);
+            ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthStretch, 0, AssetColumn_t::AC_File);
+
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableHeadersRow();
+
+            ImGuiTableSortSpecs* sortSpecs = ImGui::TableGetSortSpecs();
+
+            if (sortSpecs && sortSpecs->SpecsDirty && pakAssets.size() > 1)
+            {
+                std::sort(pakAssets.begin(), pakAssets.end(), AssetCompare_t(sortSpecs));
+                sortSpecs->SpecsDirty = false;
+            }
+
+            ImGuiMultiSelectFlags flags = ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_BoxSelect1d;
+            ImGuiMultiSelectIO* ms_io = ImGui::BeginMultiSelect(flags, static_cast<int>(s_selectedAssets.size()), static_cast<int>(pakAssets.size()));
+
+            ApplySelectionRequests(ms_io, s_selectedAssets, pakAssets);
+
+            // arbitrary large number that will never happen
+            static unsigned int lastSelectionSize = UINT32_MAX;
+
+            ImGuiListClipper clipper;
+            clipper.Begin(static_cast<int>(pakAssets.size()));
+            while (clipper.Step())
+            {
+                for (int rowNum = clipper.DisplayStart; rowNum < clipper.DisplayEnd; rowNum++)
+                {
+                    CAsset* const asset = pakAssets[rowNum].m_asset;
+
+                    // previously this was GUID_pakCRC but realistically the pak filename also works instead of the crc (though it may be slower for lookup?)
+                    ImGui::PushID(std::format("{:X}_{}", asset->GetAssetGUID(), asset->GetContainerFileName()).c_str());
+
+                    ImGui::TableNextRow();
+
+                    if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_Type))
+                    {
+                        ColouredTextForAssetType(asset);
+
+                        auto typeBinding = g_assetData.m_assetTypeBindings.find(asset->GetAssetType());
+                        if (typeBinding != g_assetData.m_assetTypeBindings.end())
+                            ImGuiExt::Tooltip(typeBinding->second.name);
+                    }
+
+                    if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_Name))
+                    {
+                        const bool isSelected = std::find(s_selectedAssets.begin(), s_selectedAssets.end(), asset) != s_selectedAssets.end();
+                        ImGui::SetNextItemSelectionUserData(rowNum);
+                        if (ImGui::Selectable(asset->GetAssetName().c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick))
+                        {
+                            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                            {
+                                // if the double clicked asset is not in the list, add it
+                                // this is a very strange case but the only way you can export multiple assets by double clicking is by
+                                // holding shift or ctrl while double clicking, which may cause the hovered asset to be deselected before export
+                                if (!isSelected)
+                                    s_selectedAssets.insert(s_selectedAssets.end(), asset);
+
+                                CThread(HandlePakAssetExportList, std::move(s_selectedAssets), g_ExportSettings.exportAssetDeps).detach();
+
+                                s_selectedAssets.clear();
+                            }
+                        }
+                    }
+
+                    if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_GUID))
+                        ImGui::Text("%016llX", asset->GetAssetGUID());
+
+                    if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_File))
+                        ImGui::TextUnformatted(asset->GetContainerFileName().c_str());
+
+                    ImGui::PopID();
+                }
+            }
+            ms_io = ImGui::EndMultiSelect();
+
+            ApplySelectionRequests(ms_io, s_selectedAssets, pakAssets);
+
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
+
+    // This window must be executed before "Scene", as the scene relies on previewDrawData already being set from here
+    if (ImGui::Begin("Asset Info", nullptr, ImGuiWindowFlags_MenuBar) && shouldPopulateAssetWindows)
+    {
+        CAsset* const firstAsset = s_selectedAssets.empty() ? nullptr : *s_selectedAssets.begin();
+        if (ImGui::BeginMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::BeginMenu("Export"))
                 {
-                    const bool multipleAssetsSelected = s_selectedAssets.size() > 1;
-
-                    if (ImGui::Selectable(multipleAssetsSelected ? "Export selected assets" : "Export selected asset"))
-                    {
-                        if (!s_selectedAssets.empty())
-                        {
-                            std::deque<CAsset*> cpyAssets;
-                            cpyAssets.insert(cpyAssets.end(), s_selectedAssets.begin(), s_selectedAssets.end());
-                            CThread(HandlePakAssetExportList, std::move(cpyAssets), g_ExportSettings.exportAssetDeps).detach();
-                            s_selectedAssets.clear();
-                        }
-                    }
-
-                    if (ImGui::Selectable("Export all for selected type", false, multipleAssetsSelected ? ImGuiSelectableFlags_Disabled : 0))
-                    {
-                        if (s_selectedAssets.size() == 1)
-                        {
-                            const uint32_t desiredType = s_selectedAssets[0]->GetAssetType();
-                            auto allAssetsOfDesiredType = pakAssets | std::ranges::views::filter([desiredType](const CGlobalAssetData::AssetLookup_t& a)
-                                {
-                                    return a.m_asset->GetAssetType() == desiredType;
-                                });
-
-                            std::vector<CGlobalAssetData::AssetLookup_t> allAssets(allAssetsOfDesiredType.begin(), allAssetsOfDesiredType.end());
-                            CThread(HandleExportSelectedAssetType, std::move(allAssets), g_ExportSettings.exportAssetDeps).detach();
-                            s_selectedAssets.clear();
-                        }
-                    }
-
-                    if (ImGui::Selectable("Export all for selected pak", false, multipleAssetsSelected ? ImGuiSelectableFlags_Disabled : 0))
-                    {
-                        if (s_selectedAssets.size() == 1 && s_selectedAssets[0]->GetAssetContainerType() == CAsset::ContainerType::PAK)
-                        {
-                            const CPakFile* desiredPak = s_selectedAssets[0]->GetContainerFile<const CPakFile>();
-                            auto allAssetsOfDesiredType = pakAssets | std::ranges::views::filter([desiredPak](const CGlobalAssetData::AssetLookup_t& a)
-                                {
-                                    return a.m_asset->GetAssetContainerType() == CAsset::ContainerType::PAK && a.m_asset->GetContainerFile<const CPakFile>() == desiredPak;
-                                });
-
-                            std::vector<CGlobalAssetData::AssetLookup_t> allAssets(allAssetsOfDesiredType.begin(), allAssetsOfDesiredType.end());
-                            CThread(HandleExportSelectedAssetType, std::move(allAssets), g_ExportSettings.exportAssetDeps).detach();
-                            s_selectedAssets.clear();
-                        }
-                    }
-
-                    if (ImGui::Selectable("Export all for selected pak and type", false, multipleAssetsSelected ? ImGuiSelectableFlags_Disabled : 0))
-                    {
-                        if (s_selectedAssets.size() == 1 && s_selectedAssets[0]->GetAssetContainerType() == CAsset::ContainerType::PAK)
-                        {
-                            const CPakFile* desiredPak = s_selectedAssets[0]->GetContainerFile<const CPakFile>();
-                            const uint32_t desiredType = s_selectedAssets[0]->GetAssetType();
-                            auto allAssetsOfDesiredType = pakAssets | std::ranges::views::filter([desiredPak, desiredType](const CGlobalAssetData::AssetLookup_t& a)
-                                {
-                                    return a.m_asset->GetAssetContainerType() == CAsset::ContainerType::PAK
-                                        && a.m_asset->GetContainerFile<CPakFile>() == desiredPak
-                                        && a.m_asset->GetAssetType() == desiredType;
-                                });
-
-                            std::vector<CGlobalAssetData::AssetLookup_t> allAssets(allAssetsOfDesiredType.begin(), allAssetsOfDesiredType.end());
-                            CThread(HandleExportSelectedAssetType, std::move(allAssets), g_ExportSettings.exportAssetDeps).detach();
-                            s_selectedAssets.clear();
-                        }
-                    }
-
-                    if (ImGui::Selectable("Export all"))
-                        CThread(HandleExportAllPakAssets, &pakAssets, g_ExportSettings.exportAssetDeps).detach();
-
-                    // Exports the names of all assets in the currently shown filtered asset list (i.e., search results)
-                    if (ImGui::Selectable("Export list of asset names..."))
-                        CThread(HandleListExportPakAssets, g_dxHandler->GetWindowHandle(), &pakAssets).detach();
+                    // File > Export > Quick Export
+                    // Option to "quickly" export the asset to the exported_files directory
+                    // in the format defined by the "Export Options" menu.
+                    if (ImGui::MenuItem("Quick Export"))
+                        CThread(HandleExportBindingForAsset, std::move(firstAsset), g_ExportSettings.exportAssetDeps).detach();
 
                     ImGui::EndMenu();
                 }
-                ImGui::EndMenuBar();
+                ImGui::EndMenu();
             }
-
-            // OR case if we load a pak and the filter is not cleared yet.
-            if (FilterConfig->textFilter.Draw("##Filter", -1.f) || (s_filteredAssets.empty() && FilterConfig->textFilter.IsActive()) || prevAssetCount != g_assetData.v_assets.size())
-            {
-                s_filteredAssets.clear();
-                for (auto& it : g_assetData.v_assets)
-                {
-                    const std::string& assetName = it.m_asset->GetAssetName();
-
-                    if (FilterConfig->textFilter.PassFilter(assetName.c_str()))
-                        s_filteredAssets.push_back(it);
-                    else
-                    {
-                        const char* const inputText = FilterConfig->textFilter.inputBuf.c_str();
-                        const size_t inputLen = FilterConfig->textFilter.inputBuf.size();
-
-                        char* end;
-                        const uint64_t guid = strtoull(inputText, &end, 0);
-
-                        if (end == &inputText[inputLen])
-                        {
-                            if (guid == RTech::StringToGuid(assetName.c_str()))
-                                s_filteredAssets.push_back(it);
-                        }
-                    }
-                }
-
-                // Shrink capacity to match new size.
-                s_filteredAssets.shrink_to_fit();
-            }
-
-            constexpr int numColumns = AssetColumn_t::_AC_COUNT;
-            if (ImGui::BeginTable("Assets", numColumns, ImGuiTableFlags_Hideable | ImGuiTableFlags_Sortable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_BordersOuterV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable))
-            {
-                ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 0, AssetColumn_t::AC_Type);
-                ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 0, AssetColumn_t::AC_Name);
-                ImGui::TableSetupColumn("GUID", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultHide, 0, AssetColumn_t::AC_GUID);
-                ImGui::TableSetupColumn("File", ImGuiTableColumnFlags_WidthStretch, 0, AssetColumn_t::AC_File);
-
-                ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableHeadersRow();
-
-                ImGuiTableSortSpecs* sortSpecs = ImGui::TableGetSortSpecs();
-
-                if (sortSpecs && sortSpecs->SpecsDirty && pakAssets.size() > 1)
-                {
-                    std::sort(pakAssets.begin(), pakAssets.end(), AssetCompare_t(sortSpecs));
-                    sortSpecs->SpecsDirty = false;
-                }
-
-                ImGuiMultiSelectFlags flags = ImGuiMultiSelectFlags_ClearOnEscape | ImGuiMultiSelectFlags_BoxSelect1d;
-                ImGuiMultiSelectIO* ms_io = ImGui::BeginMultiSelect(flags, static_cast<int>(s_selectedAssets.size()), static_cast<int>(pakAssets.size()));
-
-                ApplySelectionRequests(ms_io, s_selectedAssets, pakAssets);
-
-                // arbitrary large number that will never happen
-                static unsigned int lastSelectionSize = UINT32_MAX;
-
-                ImGuiListClipper clipper;
-                clipper.Begin(static_cast<int>(pakAssets.size()));
-                while (clipper.Step())
-                {
-                    for (int rowNum = clipper.DisplayStart; rowNum < clipper.DisplayEnd; rowNum++)
-                    {
-                        CAsset* const asset = pakAssets[rowNum].m_asset;
-
-                        // previously this was GUID_pakCRC but realistically the pak filename also works instead of the crc (though it may be slower for lookup?)
-                        ImGui::PushID(std::format("{:X}_{}", asset->GetAssetGUID(), asset->GetContainerFileName()).c_str());
-
-                        ImGui::TableNextRow();
-
-                        if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_Type))
-                        {
-                            ColouredTextForAssetType(asset);
-
-                            auto typeBinding = g_assetData.m_assetTypeBindings.find(asset->GetAssetType());
-                            if (typeBinding != g_assetData.m_assetTypeBindings.end())
-                                ImGuiExt::Tooltip(typeBinding->second.name);
-                        }
-
-                        if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_Name))
-                        {
-                            const bool isSelected = std::find(s_selectedAssets.begin(), s_selectedAssets.end(), asset) != s_selectedAssets.end();
-                            ImGui::SetNextItemSelectionUserData(rowNum);
-                            if (ImGui::Selectable(asset->GetAssetName().c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick))
-                            {
-                                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                                {
-                                    // if the double clicked asset is not in the list, add it
-                                    // this is a very strange case but the only way you can export multiple assets by double clicking is by
-                                    // holding shift or ctrl while double clicking, which may cause the hovered asset to be deselected before export
-                                    if (!isSelected)
-                                        s_selectedAssets.insert(s_selectedAssets.end(), asset);
-
-                                    CThread(HandlePakAssetExportList, std::move(s_selectedAssets), g_ExportSettings.exportAssetDeps).detach();
-                                
-                                    s_selectedAssets.clear();
-                                }
-                            }
-                        }
-
-                        if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_GUID))
-                            ImGui::Text("%016llX", asset->GetAssetGUID());
-
-                        if (ImGui::TableSetColumnIndex(AssetColumn_t::AC_File))
-                            ImGui::TextUnformatted(asset->GetContainerFileName().c_str());
-
-                        ImGui::PopID();
-                    }
-                }
-                ms_io = ImGui::EndMultiSelect();
-
-                ApplySelectionRequests(ms_io, s_selectedAssets, pakAssets);
-
-                ImGui::EndTable();
-            }
+            ImGui::EndMenuBar();
         }
-        ImGui::End();
 
-        ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+        const std::string assetName = !firstAsset ? "(none)" : firstAsset->GetAssetName();
+        const std::string assetGuidStr = !firstAsset ? "(none)" : std::format("{:X}", firstAsset->GetAssetGUID());
 
-        CAsset* const firstAsset = s_selectedAssets.empty() ? nullptr : *s_selectedAssets.begin();
-        
-        if (ImGui::Begin("Asset Info", nullptr, ImGuiWindowFlags_MenuBar))
+        ImGuiExt::ConstTextInputLeft("Asset Name", assetName.c_str(), 70);
+        ImGuiExt::ConstTextInputLeft("Asset GUID", assetGuidStr.c_str(), 70);
+
+        // Dependency information only exists for PAK assets
+        if (firstAsset && firstAsset->GetAssetContainerType() == CAsset::ContainerType::PAK)
         {
-            if (ImGui::BeginMenuBar())
-            {
-                if (ImGui::BeginMenu("File"))
-                {
-                    if (ImGui::BeginMenu("Export"))
-                    {
-                        // File > Export > Quick Export
-                        // Option to "quickly" export the asset to the exported_files directory
-                        // in the format defined by the "Export Options" menu.
-                        if (ImGui::MenuItem("Quick Export"))
-                            CThread(HandleExportBindingForAsset, std::move(firstAsset), g_ExportSettings.exportAssetDeps).detach();
+            const PakAsset_t* const pakAsset = static_cast<CPakAsset*>(firstAsset)->data();
 
-                        ImGui::EndMenu();
-                    }
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMenuBar();
-            }
+            ImGui::Text("Number of Dependencies: %hu", pakAsset->dependenciesCount);
+            ImGuiExt::HelpMarker("This is the number of assets in the same .rpak file as this asset that are required by this asset");
 
-            const std::string assetName = !firstAsset ? "(none)" : firstAsset->GetAssetName();
-            const std::string assetGuidStr = !firstAsset ? "(none)" : std::format("{:X}", firstAsset->GetAssetGUID());
+            ImGui::Text("Number of Dependent Assets: %hu", pakAsset->dependentsCount);
+            ImGuiExt::HelpMarker("This is the number of assets in the same .rpak file as this asset that use this asset");
 
-            ImGuiExt::ConstTextInputLeft("Asset Name", assetName.c_str(), 70);
-            ImGuiExt::ConstTextInputLeft("Asset GUID", assetGuidStr.c_str(), 70);
-
-            // Dependency information only exists for PAK assets
-            if (firstAsset && firstAsset->GetAssetContainerType() == CAsset::ContainerType::PAK)
-            {
-                const PakAsset_t* const pakAsset = static_cast<CPakAsset*>(firstAsset)->data();
-
-                ImGui::Text("Number of Dependencies: %hu", pakAsset->dependenciesCount);
-                ImGuiExt::HelpMarker("This is the number of assets in the same .rpak file as this asset that are required by this asset");
-
-                ImGui::Text("Number of Dependent Assets: %hu", pakAsset->dependentsCount);
-                ImGuiExt::HelpMarker("This is the number of assets in the same .rpak file as this asset that use this asset");
-
-                PreviewWnd_AssetDepsTbl(firstAsset);
-            }
-
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
-
-            ImGui::Separator();
-
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
-            ImGui::Dummy(ImVec2(0, 0));
-            if (firstAsset)
-            {
-                const uint32_t type = firstAsset->GetAssetType();
-                if (auto it = g_assetData.m_assetTypeBindings.find(type); it != g_assetData.m_assetTypeBindings.end())
-                {
-                    if (it->second.previewFunc)
-                    {
-                        // First frame is a special case, we wanna reset some settings for the preview function.
-                        const bool firstFrameForAsset = firstAsset != s_prevRenderInfoAsset;
-
-                        previewDrawData = reinterpret_cast<CDXDrawData*>(it->second.previewFunc(static_cast<CPakAsset*>(firstAsset), firstFrameForAsset));
-                        s_prevRenderInfoAsset = firstAsset;
-
-                    }
-                    else ImGui::Text("Asset type '%s' does not currently support Asset Preview.", fourCCToString(type).c_str());
-                }
-                else ImGui::Text("Asset type '%s' is not currently supported.", fourCCToString(type).c_str());
-            }
-            else ImGui::TextUnformatted("No asset selected.");
+            PreviewWnd_AssetDepsTbl(firstAsset);
         }
 
-        ImGui::End();
-    }
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
 
+        ImGui::Separator();
+
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
+        ImGui::Dummy(ImVec2(0, 0));
+        if (firstAsset)
+        {
+            const uint32_t type = firstAsset->GetAssetType();
+            if (auto it = g_assetData.m_assetTypeBindings.find(type); it != g_assetData.m_assetTypeBindings.end())
+            {
+                if (it->second.previewFunc)
+                {
+                    // First frame is a special case, we wanna reset some settings for the preview function.
+                    const bool firstFrameForAsset = firstAsset != s_prevRenderInfoAsset;
+
+                    previewDrawData = reinterpret_cast<CDXDrawData*>(it->second.previewFunc(static_cast<CPakAsset*>(firstAsset), firstFrameForAsset));
+                    s_prevRenderInfoAsset = firstAsset;
+
+                }
+                else ImGui::Text("Asset type '%s' does not currently support Asset Preview.", fourCCToString(type).c_str());
+            }
+            else ImGui::Text("Asset type '%s' is not currently supported.", fourCCToString(type).c_str());
+        }
+        else ImGui::TextUnformatted("No asset selected.");
+    }
+    ImGui::End();
+
+    // The "scene" preview window must always be in the center.
+    // Setting NoMove seems to be the best way to stop it from being undocked
+    if (ImGui::Begin("Scene", nullptr, ImGuiWindowFlags_NoMove))
+    {
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+
+        if (avail != s_previousAvailableSizeForPreview || !g_dxHandler->GetPreviewRTV())
+        {
+            g_dxHandler->CleanupForPreviewResize();
+            g_dxHandler->CreateViewForSceneWindow(static_cast<uint16_t>(avail.x), static_cast<uint16_t>(avail.y));
+        }
+
+        s_previousAvailableSizeForPreview = avail;
+
+        // Preview rendering
+        ID3D11Device* const device = g_dxHandler->GetDevice();
+        CDXScene& scene = g_dxHandler->GetScene();
+        ID3D11DeviceContext* const ctx = g_dxHandler->GetDeviceContext();
+
+        // TODO: UPDATE THIS FOR PREVIEW SHIT.
+        ID3D11RenderTargetView* const previewRTV = g_dxHandler->GetPreviewRTV();
+        static constexpr float clear_color_with_alpha[4] = { 0.01f, 0.01f, 0.01f, 1.00f };
+
+        ctx->OMSetRenderTargets(1, &previewRTV, g_dxHandler->GetPreviewDSV());
+        ctx->ClearRenderTargetView(previewRTV, clear_color_with_alpha);
+        ctx->ClearDepthStencilView(g_dxHandler->GetPreviewDSV(), D3D11_CLEAR_DEPTH, 1, 0);
+
+        const D3D11_VIEWPORT vp = {
+            0, 0,
+            static_cast<float>(avail.x),
+            static_cast<float>(avail.y),
+            0, 1
+        };
+
+        ctx->RSSetViewports(1u, &vp);
+        ctx->RSSetState(g_dxHandler->GetRasterizerState());
+        ctx->OMSetDepthStencilState(g_dxHandler->GetDepthStencilState(), 1u);
+
+#if defined(ADVANCED_MODEL_PREVIEW)
+        // Update CBufCommonPerCamera
+        g_dxHandler->GetCamera()->CommitCameraDataBufferUpdates();
+
+        scene.UpdateHardwareLights();
+        scene.UpdateCubemapSamples();
+
+        if (scene.NeedsLightingUpdate())
+            scene.MapAndUpdateLightBuffer(device, ctx);
+
+        if (scene.NeedsCubemapSmpUpdate())
+            scene.MapAndUpdateCubemapSamplesBuffer(device, ctx);
+#else
+        UNUSED(device);
+#endif
+
+        if (previewDrawData)
+        {
+            previewDrawData->SetPSResource(PSRSRC_CUBEMAP, g_dxHandler->GetCubemapSRV());
+            previewDrawData->SetPSResource(PSRSRC_CSMDEPTHATLASSAMPLER, g_dxHandler->GetCSMDepthAtlasSamplerSRV());
+            previewDrawData->SetPSResource(PSRSRC_SHADOWMAP, g_dxHandler->GetShadowMapSRV());
+            previewDrawData->SetPSResource(PSRSRC_CLOUDMASK, g_dxHandler->GetCloudMaskSRV());
+            previewDrawData->SetPSResource(PSRSRC_STATICSHADOWTEXTURE, g_dxHandler->GetStaticShadowTexSRV());
+
+            CDXCamera* const camera = g_dxHandler->GetCamera();
+
+            if (previewDrawData->vertexShader && previewDrawData->pixelShader) LIKELY
+            {
+                ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+                assertm(previewDrawData->transformsBuffer, "uh oh something very bad happened!!!!!!");
+
+                ctx->VSSetConstantBuffers(0u, 1u, &previewDrawData->transformsBuffer); // VS_TransformConstants/CBufModelInstance
+
+                UINT offset = 0u;
+
+                for (size_t i = 0; i < previewDrawData->meshBuffers.size(); ++i)
+                {
+                    const DXMeshDrawData_t& meshDrawData = previewDrawData->meshBuffers[i];
+
+                    if (!meshDrawData.visible || !meshDrawData.vertexShader || !meshDrawData.pixelShader)
+                        continue;
+
+                    ctx->RSSetState(meshDrawData.wireframe ? g_dxHandler->GetRasterizerStateWireFrame() : g_dxHandler->GetRasterizerState());
+
+                    assertm(meshDrawData.vertexShader != nullptr, "No vertex shader?");
+                    assertm(meshDrawData.pixelShader != nullptr, "No pixel shader?");
+
+                    ctx->IASetInputLayout(meshDrawData.inputLayout);
+                    ctx->VSSetShader(meshDrawData.vertexShader, nullptr, 0u);
+
+                    ID3D11Buffer* sharedConstBuffers[] = {
+                        camera->bufCommonPerCamera,           // CBufCommonPerCamera - b2
+                        previewDrawData->modelInstanceBuffer, // CBufModelInstance   - b3
+                    };
+
+                    for (auto& rsrc : previewDrawData->vertexShaderResources)
+                    {
+                        ctx->VSSetShaderResources(rsrc.first, 1u, &rsrc.second);
+                    }
+
+                    // [AMP]
+                    if (meshDrawData.hasGameShaders)
+                    {
+                        // VertexShader: CBufCommonPerCamera, CBufModelInstance
+                        ctx->VSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
+
+                        // VertexShader: g_boneMatrix, g_boneMatrixPrevFrame
+                        ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX, 1u, &previewDrawData->boneMatrixSRV);
+                        ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX_PREV_FRAME, 1u, &previewDrawData->boneMatrixSRV);
+                    }
+
+                    ctx->IASetVertexBuffers(0u, 1u, &meshDrawData.vertexBuffer, &meshDrawData.vertexStride, &offset);
+                    // ==============================================================================
+
+                    assertm(meshDrawData.pixelShader != nullptr, "No pixel shader?");
+
+                    ctx->PSSetShader(meshDrawData.pixelShader, nullptr, 0u);
+
+                    ID3D11SamplerState* const samplerState = g_dxHandler->GetSamplerState();
+
+                    // [AMP] Samplers, Lights, CBufs
+                    if (meshDrawData.hasGameShaders)
+                    {
+                        ID3D11SamplerState* samplers[] = {
+                            g_dxHandler->GetSamplerComparisonState(),
+                            samplerState,
+                            samplerState,
+                        };
+                        ctx->PSSetSamplers(0, ARRSIZE(samplers), samplers);
+
+                        if (meshDrawData.uberStaticBuf)
+                            ctx->PSSetConstantBuffers(0u, 1u, &meshDrawData.uberStaticBuf);
+
+                        if (meshDrawData.uberDynamicBuf)
+                            ctx->PSSetConstantBuffers(1u, 1u, &meshDrawData.uberDynamicBuf);
+
+                        // PixelShader: CBufCommonPerCamera, CBufModelInstance
+                        ctx->PSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
+
+                        // PixelShader: s_globalLights
+                        ctx->PSSetShaderResources(PSRSRC_GLOBAL_LIGHTS, 1u, &scene.globalLightsSRV);
+                        ctx->PSSetShaderResources(PSRSRC_CUBEMAP_SAMPLES, 1u, &scene.cubemapSamplesSRV);
+                    }
+                    else
+                        ctx->PSSetSamplers(0, 1, &samplerState);
+
+                    // Bind texture resources for this mesh's material
+                    for (auto& tex : meshDrawData.textures)
+                    {
+                        ID3D11ShaderResourceView* const textureSRV = tex.texture
+                            ? tex.texture.get()->GetSRV()
+                            : nullptr;
+
+                        ctx->PSSetShaderResources(tex.resourceBindPoint, 1u, &textureSRV);
+                    }
+
+                    // Bind pixel shader resources
+                    for (auto& rsrc : previewDrawData->pixelShaderResources)
+                    {
+                        ctx->PSSetShaderResources(rsrc.first, 1u, &rsrc.second);
+                    }
+
+                    // ==============================================================================
+                    ctx->IASetIndexBuffer(meshDrawData.indexBuffer, meshDrawData.indexFormat, 0u);
+                    ctx->DrawIndexed(static_cast<UINT>(meshDrawData.numIndices), 0u, 0u);
+                }
+            }
+            else assertm(0, "Failed to load shaders for model preview.");
+
+            if (g_dxHandler->GetPreviewFrameBuffer())
+            {
+                ImGui::Image(g_dxHandler->GetPreviewFrameBufferSRV(), avail);
+            }
+        }
+    }
+    ImGui::End();
+
+    
+
+    
     if (uiState.settingsWindowVisible)
         SettingsWnd_Draw(&uiState);
 
@@ -824,15 +1013,6 @@ void HandleRenderFrame()
         LogWnd_Draw(&uiState);
 
     g_pImGuiHandler->HandleProgressBar();
-
-    ImDrawList* bgDrawList = ImGui::GetBackgroundDrawList();
-    if (previewDrawData)
-    {
-        bgDrawList->AddText(
-            ImGui::GetFont(), 15.f,
-            ImVec2(10, 20), 0xFFFFFFFF,
-            std::format("right click to toggle preview mouse control").c_str());
-    }
 
     ImGui::Render();
 
@@ -851,6 +1031,11 @@ void HandleRenderFrame()
     UNUSED(device);
     UNUSED(scene);
 #endif
+
+
+    
+
+    prevAssetCount = g_assetData.v_assets.size();
 
     ID3D11RenderTargetView* const mainView = g_dxHandler->GetMainView();
     static constexpr float clear_color_with_alpha[4] = { 0.01f, 0.01f, 0.01f, 1.00f };
@@ -871,139 +1056,6 @@ void HandleRenderFrame()
     };
 
     ctx->RSSetViewports(1u, &vp);
-    ctx->RSSetState(g_dxHandler->GetRasterizerState());
-    ctx->OMSetDepthStencilState(g_dxHandler->GetDepthStencilState(), 1u);
-
-#if defined(ADVANCED_MODEL_PREVIEW)
-    // Update CBufCommonPerCamera
-    g_dxHandler->GetCamera()->CommitCameraDataBufferUpdates();
-
-    scene.UpdateHardwareLights();
-    scene.UpdateCubemapSamples();
-
-    if (scene.NeedsLightingUpdate())
-        scene.MapAndUpdateLightBuffer(device, ctx);
-
-    if (scene.NeedsCubemapSmpUpdate())
-        scene.MapAndUpdateCubemapSamplesBuffer(device, ctx);
-#endif
-
-    if (previewDrawData)
-    {
-        previewDrawData->SetPSResource(PSRSRC_CUBEMAP, g_dxHandler->GetCubemapSRV());
-        previewDrawData->SetPSResource(PSRSRC_CSMDEPTHATLASSAMPLER, g_dxHandler->GetCSMDepthAtlasSamplerSRV());
-        previewDrawData->SetPSResource(PSRSRC_SHADOWMAP, g_dxHandler->GetShadowMapSRV());
-        previewDrawData->SetPSResource(PSRSRC_CLOUDMASK, g_dxHandler->GetCloudMaskSRV());
-        previewDrawData->SetPSResource(PSRSRC_STATICSHADOWTEXTURE, g_dxHandler->GetStaticShadowTexSRV());
-        
-        CDXCamera* const camera = g_dxHandler->GetCamera();
-
-        if (previewDrawData->vertexShader && previewDrawData->pixelShader) LIKELY
-        {
-            ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-            assertm(previewDrawData->transformsBuffer, "uh oh something very bad happened!!!!!!");
-
-            ctx->VSSetConstantBuffers(0u, 1u, &previewDrawData->transformsBuffer); // VS_TransformConstants/CBufModelInstance
-
-            UINT offset = 0u;
-
-            for (size_t i = 0; i < previewDrawData->meshBuffers.size(); ++i)
-            {
-                const DXMeshDrawData_t& meshDrawData = previewDrawData->meshBuffers[i];
-
-                if (!meshDrawData.visible || !meshDrawData.vertexShader || !meshDrawData.pixelShader)
-                    continue;
-
-                ctx->RSSetState(meshDrawData.wireframe ? g_dxHandler->GetRasterizerStateWireFrame() : g_dxHandler->GetRasterizerState());
-
-                assertm(meshDrawData.vertexShader != nullptr, "No vertex shader?");
-                assertm(meshDrawData.pixelShader  != nullptr, "No pixel shader?");
-
-                ctx->IASetInputLayout(meshDrawData.inputLayout);
-                ctx->VSSetShader(meshDrawData.vertexShader, nullptr, 0u);
-
-                ID3D11Buffer* sharedConstBuffers[] = {
-                    camera->bufCommonPerCamera,           // CBufCommonPerCamera - b2
-                    previewDrawData->modelInstanceBuffer, // CBufModelInstance   - b3
-                };
-
-                for (auto& rsrc : previewDrawData->vertexShaderResources)
-                {
-                    ctx->VSSetShaderResources(rsrc.first, 1u, &rsrc.second);
-                }
-
-                // [AMP]
-                if (meshDrawData.hasGameShaders)
-                {
-                    // VertexShader: CBufCommonPerCamera, CBufModelInstance
-                    ctx->VSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
-
-                    // VertexShader: g_boneMatrix, g_boneMatrixPrevFrame
-                    ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX, 1u, &previewDrawData->boneMatrixSRV);
-                    ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX_PREV_FRAME, 1u, &previewDrawData->boneMatrixSRV);
-                }
-
-                ctx->IASetVertexBuffers(0u, 1u, &meshDrawData.vertexBuffer, &meshDrawData.vertexStride, &offset);
-                // ==============================================================================
-
-                assertm(meshDrawData.pixelShader != nullptr, "No pixel shader?");
-                   
-                ctx->PSSetShader(meshDrawData.pixelShader, nullptr, 0u);
-
-                ID3D11SamplerState* const samplerState = g_dxHandler->GetSamplerState();
-
-                // [AMP] Samplers, Lights, CBufs
-                if (meshDrawData.hasGameShaders)
-                {
-                    ID3D11SamplerState* samplers[] = {
-                        g_dxHandler->GetSamplerComparisonState(),
-                        samplerState,
-                        samplerState,
-                    };
-                    ctx->PSSetSamplers(0, ARRSIZE(samplers), samplers);
-
-                    if (meshDrawData.uberStaticBuf)
-                        ctx->PSSetConstantBuffers(0u, 1u, &meshDrawData.uberStaticBuf);
-
-                    if (meshDrawData.uberDynamicBuf)
-                        ctx->PSSetConstantBuffers(1u, 1u, &meshDrawData.uberDynamicBuf);
-
-                    // PixelShader: CBufCommonPerCamera, CBufModelInstance
-                    ctx->PSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
-
-                    // PixelShader: s_globalLights
-                    ctx->PSSetShaderResources(PSRSRC_GLOBAL_LIGHTS, 1u, &scene.globalLightsSRV);
-                    ctx->PSSetShaderResources(PSRSRC_CUBEMAP_SAMPLES, 1u, &scene.cubemapSamplesSRV);
-                }
-                else
-                    ctx->PSSetSamplers(0, 1, &samplerState);
-
-                // Bind texture resources for this mesh's material
-                for (auto& tex : meshDrawData.textures)
-                {
-                    ID3D11ShaderResourceView* const textureSRV = tex.texture
-                        ? tex.texture.get()->GetSRV()
-                        : nullptr;
-
-                    ctx->PSSetShaderResources(tex.resourceBindPoint, 1u, &textureSRV);
-                }
-
-                // Bind pixel shader resources
-                for (auto& rsrc : previewDrawData->pixelShaderResources)
-                {
-                    ctx->PSSetShaderResources(rsrc.first, 1u, &rsrc.second);
-                }
-
-                // ==============================================================================
-                ctx->IASetIndexBuffer(meshDrawData.indexBuffer, meshDrawData.indexFormat, 0u);
-                ctx->DrawIndexed(static_cast<UINT>(meshDrawData.numIndices), 0u, 0u);
-            }
-        }
-        else assertm(0, "Failed to load shaders for model preview.");
-    }
-
-    prevAssetCount = g_assetData.v_assets.size();
 
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 

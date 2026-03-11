@@ -569,6 +569,7 @@ bool CDXParentHandler::SetupDeviceD3D()
 
 bool CDXParentHandler::CreateMainView(const uint16_t w, const uint16_t h)
 {
+    UNUSED(w); UNUSED(h);
     ID3D11Texture2D* pBackBuffer = nullptr;
     if (FAILED(m_pSwapChain->GetBuffer(0u, IID_PPV_ARGS(&pBackBuffer))))
     {
@@ -582,7 +583,7 @@ bool CDXParentHandler::CreateMainView(const uint16_t w, const uint16_t h)
         return false;
     }
 
-    this->CreateDepthBuffer(pBackBuffer);
+    this->CreateDepthBuffer(pBackBuffer, &m_pDepthStencilView);
     {
         D3D11_RASTERIZER_DESC desc = {};
         desc.FillMode = D3D11_FILL_SOLID;
@@ -654,13 +655,63 @@ bool CDXParentHandler::CreateMainView(const uint16_t w, const uint16_t h)
             assertm(false, "Failed to create sampler comparison state (shadowmapSampler)");
     }
 
-    m_projectionMatrix = XMMatrixPerspectiveFovLH(0.25f * XM_PI, static_cast<float>(w) / h, 0.1f, g_PreviewSettings.previewCullDistance);
 
     pBackBuffer->Release();
     return true;
 }
 
-bool CDXParentHandler::CreateDepthBuffer(ID3D11Texture2D* const frameBuffer)
+// Create a render frame buffer for our 3d previews to render into, so we can display it as an ImGui image
+bool CDXParentHandler::CreateViewForSceneWindow(const uint16_t w, const uint16_t h)
+{
+    D3D11_TEXTURE2D_DESC textureDesc{};
+    textureDesc.Width = w;
+    textureDesc.Height = h;
+    textureDesc.MipLevels = 1;
+    textureDesc.ArraySize = 1;
+    textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    textureDesc.SampleDesc.Count = 1;
+    textureDesc.Usage = D3D11_USAGE_DEFAULT;
+    textureDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    textureDesc.CPUAccessFlags = 0;
+    textureDesc.MiscFlags = 0;
+
+    if (FAILED(m_pDevice->CreateTexture2D(&textureDesc, nullptr, &m_previewState.frameBuffer)))
+    {
+        assertm(false, "Failed to create render texture");
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = textureDesc.Format;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = textureDesc.MipLevels;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+
+    if (FAILED(m_pDevice->CreateShaderResourceView(m_previewState.frameBuffer, &srvDesc, &m_previewState.frameBufferSRV)))
+    {
+        assertm(false, "Failed to create render texture SRV");
+        return false;
+    }
+
+    D3D11_RENDER_TARGET_VIEW_DESC viewDesc{};
+    viewDesc.Format = textureDesc.Format;
+    viewDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    viewDesc.Texture2D.MipSlice = 0;
+
+    if (FAILED(m_pDevice->CreateRenderTargetView(m_previewState.frameBuffer, &viewDesc, &m_previewState.previewRTV)))
+    {
+        assertm(false, "Failed to create render target view.");
+        return false;
+    }
+
+    this->CreateDepthBuffer(m_previewState.frameBuffer, &m_previewState.previewDSV);
+    
+    m_projectionMatrix = XMMatrixPerspectiveFovLH(0.25f * XM_PI, static_cast<float>(w) / h, 0.1f, g_PreviewSettings.previewCullDistance);
+
+    return true;
+}
+
+bool CDXParentHandler::CreateDepthBuffer(ID3D11Texture2D* const frameBuffer, ID3D11DepthStencilView** depthStencilView)
 {
     ID3D11Texture2D* depthBuffer = nullptr;
     D3D11_TEXTURE2D_DESC depthBufferDesc = {};
@@ -684,7 +735,7 @@ bool CDXParentHandler::CreateDepthBuffer(ID3D11Texture2D* const frameBuffer)
     depthStencilViewDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
     depthStencilViewDesc.Texture2D.MipSlice = 0u; // depth buffer does not have mips so make sure it uses the right data
 
-    hr = m_pDevice->CreateDepthStencilView(depthBuffer, &depthStencilViewDesc, &m_pDepthStencilView);
+    hr = m_pDevice->CreateDepthStencilView(depthBuffer, &depthStencilViewDesc, depthStencilView);
     if (FAILED(hr))
         assertm(false, "Failed to create depth stencil view.");
 
@@ -763,6 +814,9 @@ void CDXParentHandler::CleanupD3D()
 
     DX_RELEASE_PTR(m_staticShadowTexture);
     DX_RELEASE_PTR(m_staticShadowTextureSRV);
+
+    DX_RELEASE_PTR(m_previewState.previewRTV);
+    DX_RELEASE_PTR(m_previewState.frameBuffer);
 }
 
 void CDXParentHandler::HandleResize(const uint16_t x, const uint16_t y)

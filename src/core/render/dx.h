@@ -304,6 +304,13 @@ public:
 
 	bool SetupDeviceD3D();
 	void CleanupD3D();
+    void CleanupForPreviewResize()
+    {
+        DX_RELEASE_PTR(m_previewState.frameBuffer);
+        DX_RELEASE_PTR(m_previewState.frameBufferSRV);
+        DX_RELEASE_PTR(m_previewState.previewRTV);
+        DX_RELEASE_PTR(m_previewState.previewDSV);
+    };
 
 	void HandleResize(const uint16_t x, const uint16_t y);
 	bool HandleWindowChange(HWND hWnd);
@@ -334,6 +341,11 @@ public:
     inline ID3D11SamplerState* GetSamplerState() const { return m_pSamplerState; };
     inline ID3D11SamplerState* GetSamplerComparisonState() const { return m_pSamplerCmpState; };
 
+    inline ID3D11Texture2D* GetPreviewFrameBuffer() const { return m_previewState.frameBuffer; };
+    inline ID3D11ShaderResourceView* GetPreviewFrameBufferSRV() const { return m_previewState.frameBufferSRV; };
+    inline ID3D11RenderTargetView* GetPreviewRTV() const { return m_previewState.previewRTV; };
+    inline ID3D11DepthStencilView* GetPreviewDSV() const { return m_previewState.previewDSV; };
+
     inline const uint32_t GetActiveMonitor() const { return m_activeMonitor; }
     // returns true if the monitors have a shared adapter
     inline bool MonitorHasSameAdapter(const uint32_t mon0, const uint32_t mon1) const
@@ -360,8 +372,10 @@ public:
     inline ID3D11ShaderResourceView* GetCSMDepthAtlasSamplerSRV() { return m_CSMDepthAtlasSamplerSRV; };
     inline ID3D11ShaderResourceView* GetStaticShadowTexSRV() { return m_staticShadowTextureSRV; };
 
+
+    bool CreateViewForSceneWindow(const uint16_t w, const uint16_t h);
 private:
-    bool CreateDepthBuffer(ID3D11Texture2D* frameBuffer);
+    bool CreateDepthBuffer(ID3D11Texture2D* const frameBuffer, ID3D11DepthStencilView** depthStencilView);
 	bool CreateMainView(const uint16_t w, const uint16_t h);
 
     bool CreateMisc();
@@ -419,6 +433,13 @@ private:
 
     ID3D11Texture2D* m_staticShadowTexture;
     ID3D11ShaderResourceView* m_staticShadowTextureSRV;
+
+    struct {
+        ID3D11Texture2D* frameBuffer;
+        ID3D11ShaderResourceView* frameBufferSRV;
+        ID3D11RenderTargetView* previewRTV;
+        ID3D11DepthStencilView* previewDSV;
+    } m_previewState;
 
 
     CDXScene m_Scene;
