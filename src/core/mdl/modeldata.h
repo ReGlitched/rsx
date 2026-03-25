@@ -20,6 +20,18 @@ struct VertexWeight_t
 	int16_t bone;
 };
 
+struct VertexWeight_ForShader_t
+{
+	float weight;
+	int bone;
+
+	void operator=(VertexWeight_t& rhs)
+	{
+		weight = rhs.weight;
+		bone = rhs.bone;
+	}
+};
+
 struct Vertex_t
 {
 	Vector position;
@@ -30,6 +42,8 @@ struct Vertex_t
 	// [rika]: if this vertex buffer is used for rendering our shader doesn't support bones anyway.
 	uint32_t weightCount : 8;
 	uint32_t weightIndex : 24; // max weight count in a mesh is 1048576 (2^20), 24 bits gives plenty of headroom with a max value of 16777216 (2^24)
+
+	Vertex_t(float x, float y, float z) : position(x, y, z), normalPacked(0), color(0xFF, 0xFF, 0xFF, 0xFF), texcoord(INFINITY, INFINITY), weightCount(0), weightIndex(0) {};
 
 	static void ParseVertexFromVG(Vertex_t* const vert, VertexWeight_t* const weights, Vector2D* const texcoords, ModelMeshData_t* const mesh, const char* const rawVertexData, const uint8_t* const boneMap, const vvw::mstudioboneweightextra_t* const weightExtra, int& weightIdx);
 
@@ -640,7 +654,7 @@ void ParseModelAttachmentData_v16(ModelParsedData_t* const parsedData);
 void ParseModelHitboxData_v8(ModelParsedData_t* const parsedData);
 void ParseModelHitboxData_v16(ModelParsedData_t* const parsedData);
 
-void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const drawData, const uint64_t lod);
+void CreateBuffersForModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const drawData, const uint64_t lod);
 
 void ParseModelAnimTypes_V8(ModelParsedData_t* const parsedData);
 void ParseModelAnimTypes_V16(ModelParsedData_t* const parsedData);
@@ -667,12 +681,14 @@ public:
 	inline VertexWeight_t* const GetWeights() const { return weightOffset > 0 ? reinterpret_cast<VertexWeight_t*>((char*)this + weightOffset) : nullptr; };
 	inline Vector2D* const GetTexcoords() const { return texcoordOffset > 0 ? reinterpret_cast<Vector2D*>((char*)this + texcoordOffset) : nullptr; };
 
+	inline int64_t GetWeightCount() const { return weightCount; };
 	inline const int64_t GetSize() const { return size; };
 
 private:
 	int64_t indiceOffset;
 	int64_t vertexOffset;
 	int64_t weightOffset;
+	int64_t weightCount;
 	int64_t texcoordOffset;
 
 	int64_t size; // size of this data
@@ -780,6 +796,8 @@ enum eModelExportSetting : int
 	// rmdl only for now, but can support sourcemodelasset in the future
 	MODEL_STL_VALVE_PHYSICS,
 	MODEL_STL_RESPAWN_PHYSICS,
+	
+	MODEL_HITBOXES,
 
 	MODEL_COUNT,
 };
@@ -791,7 +809,8 @@ static const char* s_ModelExportSettingNames[] =
 	"RMDL",
 	"SMD",
 	"STL (Valve Physics)", 
-	"STL (Respawn Physics)"
+	"STL (Respawn Physics)",
+	"OBJ (Hitboxes only)"
 };
 
 static const char* s_ModelExportExtensions[] =

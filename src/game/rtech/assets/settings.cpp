@@ -300,7 +300,7 @@ void SettingsAsset::R_WriteSetFile(std::string& out, const size_t indentLevel, c
 	case eSettingsFieldType::ST_ASSET_NOPRECACHE:
 	{
 		const char* const charBuf = *(const char**)&valData[field->valueOffset];
-		out.append(std::format("\"{:s}\"", charBuf));
+		out.append(std::format("\"{:s}\"", EscapeString(charBuf)));
 		break;
 	}
 	case eSettingsFieldType::ST_ARRAY:
@@ -399,7 +399,7 @@ void SettingsAsset::R_WriteModValues(std::string& out, const SettingsLayoutAsset
 		}
 		else
 		{
-			assert(0);
+			//assert(0);
 			out += "// FAILURE( !!! SETTINGS FIELD NOT FOUND !!! )\n";
 		}
 

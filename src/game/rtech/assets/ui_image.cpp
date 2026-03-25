@@ -3,6 +3,7 @@
 
 #include <core/render/dx.h>
 #include <thirdparty/imgui/imgui.h>
+#include <core/render/ui/styles.h>
 
 extern CDXParentHandler* g_dxHandler;
 extern ExportSettings_t g_ExportSettings;
@@ -539,7 +540,7 @@ void* PreviewUIImageAsset(CAsset* const asset, const bool firstFrameForAsset)
         {
             if (!uiAsset->shouldStream && selectedUIImage == eUIImageTileType::TYPE_HQ)
             {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                ImGui::PushStyleColor(ImGuiCol_Text, Styles::TEXTCOL_NOT_LOADED);
                 ImGui::TextUnformatted("Not Loaded");
                 ImGui::PopStyleColor();
             }

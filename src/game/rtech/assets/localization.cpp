@@ -45,73 +45,6 @@ void PostLoadLocalizationAsset(CAssetContainer* pak, CAsset* asset)
     }
 }
 
-std::string EscapeLocalizationString(const std::string& str)
-{
-    std::stringstream outStream;
-
-    for (int i = 0; i < str.length(); ++i)
-    {
-        unsigned char c = str.at(i);
-
-        // if this char is over ascii then it's a multibyte sequence
-        if (c > 0x7F)
-        {
-            // find the number of bytes to add to the stringstream
-            int numBytes = 0;
-
-            if (c <= 0xBF)
-                numBytes = 1;
-            else if (c >= 0xc2 && c <= 0xdf) // 0xC2 -> 0xDF - 2 byte sequence
-                numBytes = 2;
-            else if (c >= 0xe0 && c <= 0xef) // 0xE0 -> 0xEF - 3 byte sequence
-                numBytes = 3;
-            else if (c >= 0xf0 && c <= 0xf4) // 0xF0 -> 0xF4 - 4 byte sequence
-                numBytes = 4;
-
-            assert(numBytes != 0);
-
-            for (int j = 0; j < numBytes; ++j)
-            {
-                outStream << str.at(i + j);
-            }
-
-            // add numBytes-1 to the char index
-            // since one increment will already be handled by the for loop
-            i += numBytes-1;
-            continue;
-        }
-
-        switch (c)
-        {
-        case '\0':
-            break;
-        case '\t':
-            outStream << "\\t";
-            break;
-        case '\n':
-            outStream << "\\n";
-            break;
-        case '\r':
-            outStream << "\\r";
-            break;
-        case '\"':
-            outStream << "\\\"";
-            break;
-        default:
-        {
-            if (!std::isprint(c))
-                outStream << std::hex << std::setfill('0') << std::setw(2) << "\\x" << (int)c;
-            else
-                outStream << c;
-
-            break;
-        }
-        }
-    }
-
-    return outStream.str();
-}
-
 static const char* const s_PathPrefixLOCL = s_AssetTypePaths.find(AssetType_t::LOCL)->second;
 bool ExportLocalizationAsset(CAsset* const asset, const int setting)
 {
@@ -143,10 +76,9 @@ bool ExportLocalizationAsset(CAsset* const asset, const int setting)
 
     ofs << "\"" << loclAsset->fileName << "\"\n{\n";
 
-
     for (auto& it : loclAsset->entryMap)
     {
-        ofs << "\t\"" << std::hex << it.first << "\" \"" << EscapeLocalizationString(it.second).c_str() << "\"\n"; // use the .c_str() function here now so it gets null terminated properly (if there's extra data or it's cut off, there will no longer be a [NUL] character in the file.
+        ofs << "\t\"" << std::hex << it.first << "\" \"" << EscapeString(it.second).c_str() << "\"\n"; // use the .c_str() function here now so it gets null terminated properly (if there's extra data or it's cut off, there will no longer be a [NUL] character in the file.
     }
 
     ofs << "}";

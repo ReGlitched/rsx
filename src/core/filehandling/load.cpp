@@ -53,11 +53,11 @@ static void HandleFileLoad(std::vector<std::string> filePaths, HandleFileLoadCal
     }
     
     // Only run post-load if we are running with GUI, or if CLI has requested the export of some assets
-    if(!cli || !cli->HasParam("-nogui") || cli->HasParam("-export"))
+    if(!cli || !IS_NOGUI(cli) || cli->HasParam("-export"))
         g_assetData.ProcessAssetsPostLoad();
 
     // This callback is only really needed for CLI, since users aren't able to access the assets before postloading anyway
-    if (cli && cli->HasParam("-nogui"))
+    if (cli && IS_NOGUI(cli))
     {
         if (cb && cli)
             cb(cli);
@@ -151,7 +151,7 @@ void HandleLoadFromCommandLine(const CCommandLine* const cli)
     // If this gets detached when running without the usual windows msg loop to hold up main thread, the main thread will exit
     // and clean up static vars before the other threads have finished execution. This will cause a crash when accessing anything static
     // such as s_AssetTypePaths in pakfile's ProcessAssets
-    if (cli->HasParam("-nogui"))
+    if (IS_NOGUI(cli))
         thread.join();
     else
         thread.detach();

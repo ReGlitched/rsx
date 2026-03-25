@@ -27,7 +27,6 @@
 #pragma warning(push, 0)
 #pragma warning( disable: 4127 )
 
-
 CDXParentHandler* g_dxHandler;
 std::atomic<uint32_t> g_maxConcurrentThreadCount = 1u;
 
@@ -110,6 +109,8 @@ static void RegisterAssetTypeBindings(const CCommandLine* const cli)
     // bluepoint
     extern void InitBluepointWrappedFileAssetType();
 
+    extern void InitCubeAssetType();
+
 
     // call func
     // model
@@ -177,8 +178,9 @@ static void RegisterAssetTypeBindings(const CCommandLine* const cli)
     // bluepoint
     InitBluepointWrappedFileAssetType();
 
+    InitCubeAssetType();
+
 #if defined(DEBUG_NO_ASEQ_POSTLOAD)
-    Log("RSX WARNING: Built with DEBUG_NO_ASEQ_POSTLOAD. Animation Sequence assets will not be parsed.\n");
     g_assetData.Log_Warning(nullptr, "Built with DEBUG_NO_ASEQ_POSTLOAD. Animation Sequence (aseq) assets will not work properly!");
 #endif
 }
@@ -241,37 +243,17 @@ int main(int argc, char* argv[])
 {
     CCommandLine cli(argc, argv);
 
-#if defined(BUILD_NOGUI)
-    constexpr bool noGui = true;
-#else
-    const bool noGui = cli.HasParam("-nogui");
-#endif
-
 #if !defined(_DEBUG) && defined(_WIN32)
-    if (noGui)
+    if (IS_NOGUI(&cli))
         CreateConsole();
 #endif
 
 #if !defined(_DEBUG) // Allow the VS debugger to control its working directory
     // this is needed to properly support drag'n'drop, it changes the current working directory to the file you drag into the exe
     // HOWEVER: this should not apply when nogui is specified, as it is expected that shorter, relative file paths can be used when running CLI
-    if (!noGui && !RestoreCurrentWorkingDirectory())
+    if (!IS_NOGUI(&cli) && !RestoreCurrentWorkingDirectory())
     {
         return EXIT_FAILURE;
-    }
-#endif
-
-    Log("Starting RSX v%s\n", VERSION_STRING);
-
-#if !defined(_DEBUG) && !defined(NO_LIBCURL) // Update Checking should not run on debug as we probably don't care about updating
-    GitHubReleaseInfo_s releaseInfo;
-    if (!noGui && GetLatestGitHubReleaseInformation(&releaseInfo))
-    {
-        const char* newVersionType = nullptr;
-        if ((newVersionType = releaseInfo.GetHighestDifferingVersionNumber()))
-        {
-            Log("** Found a new %s update: %s\n", newVersionType, releaseInfo.tagName.c_str());
-        }
     }
 #endif
 
@@ -298,7 +280,7 @@ int main(int argc, char* argv[])
 
     RegisterAssetTypeBindings(&cli);
 
-    if (!noGui)
+    if (!IS_NOGUI(&cli))
     {
 #if defined(SPLASHSCREEN)
         DrawSplashScreen();
@@ -313,6 +295,25 @@ int main(int argc, char* argv[])
             delete g_dxHandler;
             return EXIT_FAILURE;
         }
+
+        CUIState& uiState = g_dxHandler->GetUIState();
+
+        // If there is no new version detected, this will stay as nullptr
+        uiState.newVersionType = nullptr;
+
+#if !defined(_DEBUG) && !defined(NO_LIBCURL) // Update Checking should not run on debug as we probably don't care about updating
+        if (!IS_NOGUI(&cli) && UtilsConfig->checkForUpdates && GetLatestGitHubReleaseInformation(&uiState.newVersionReleaseInfo))
+        {
+            const char* newVersionType = nullptr;
+            if ((newVersionType = uiState.newVersionReleaseInfo.GetHighestDifferingVersionNumber()))
+            {
+                uiState.newVersionType = newVersionType;
+
+                Log("** Found a new %s update: %s\n", newVersionType, uiState.newVersionReleaseInfo.tagName.c_str());
+            }
+        }
+#endif
+
         g_pInput->Init(windowHandle);
 
         ShowWindow(windowHandle, SW_SHOWDEFAULT);
@@ -348,15 +349,14 @@ int main(int argc, char* argv[])
             UtilsConfig->exportThreadCount = clamp(static_cast<uint32_t>(atoi(numExportThreads)), 1u, totalThreadCount);
     }
 
-    // call after initializing dx and gui otherwise you will crash
     HandleLoadFromCommandLine(&cli);
 
-    if (!noGui)
+    if (!IS_NOGUI(&cli))
         RunWindowMsgLoop();
 
     g_cacheDBManager.SaveToFile((std::filesystem::current_path() / RSX_CACHE_DB_FILENAME).string());
 
-    if (!noGui)
+    if (!IS_NOGUI(&cli))
     {
         ImGui_ImplDX11_Shutdown();
         ImGui_ImplWin32_Shutdown();

@@ -13,7 +13,7 @@ public:
 
 	Vector() = default;
 	Vector(float inFl) : x(inFl), y(inFl), z(inFl) {};
-	Vector(float inX, float inY, float inZ) : x(inX), y(inY), z(inZ) {};
+	constexpr Vector(float inX, float inY, float inZ) : x(inX), y(inY), z(inZ) {};
 	Vector(const Vector& vecIn) : x(vecIn.x), y(vecIn.y), z(vecIn.z) {};
 	~Vector() {};
 

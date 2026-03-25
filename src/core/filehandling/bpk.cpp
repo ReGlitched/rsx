@@ -20,7 +20,7 @@ void HandleBPKLoad(std::vector<std::string> filePaths)
         CBluepointPakfile* pakfile = new CBluepointPakfile;
 
         pakfile->SetFilePath(path);
-        pakfile->SetFileName(keepAfterLastSlashOrBackslash(path.c_str())); // this copies into a buffer
+        pakfile->SetFileName(GetStringAfterLastSlash(path.c_str())); // this copies into a buffer
 
         if (!pakfile->ParseFromFile())
         {

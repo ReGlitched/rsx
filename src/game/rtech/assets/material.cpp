@@ -7,6 +7,7 @@
 #include <thirdparty/imgui/misc/imgui_utility.h>
 #include <core/render/dx.h>
 #include <core/render/dxutils.h>
+#include <core/render/ui/styles.h>
 
 extern CDXParentHandler* g_dxHandler;
 extern ExportSettings_t g_ExportSettings;
@@ -271,7 +272,7 @@ void PostLoadMaterialAsset(CAssetContainer* const container, CAsset* const asset
         materialAsset->txtrAssets.push_back(TextureAssetEntry_t(textureAsset, static_cast<uint32_t>(i)));
     }
 
-    if (materialAsset->cpuData)
+    if (materialAsset->cpuData && materialAsset->cpuDataSize)
     {
         CreateD3DBuffer(g_dxHandler->GetDevice(),
             &materialAsset->uberStaticBuffer, materialAsset->cpuDataSize,
@@ -418,6 +419,8 @@ void MatPreview_DXState(const MaterialDXState_t& dxState, const uint8_t dxStateI
     ImGui::Text("Rasterizer Flags:    %u", dxState.rasterizerFlags);
 }
 
+static CDXDrawData* s_materialDrawData = nullptr;
+
 void* PreviewMaterialAsset(CAsset* const asset, const bool firstFrameForAsset)
 {
     CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
@@ -440,6 +443,12 @@ void* PreviewMaterialAsset(CAsset* const asset, const bool firstFrameForAsset)
 
     if (firstFrameForAsset)
     {
+        //if (s_materialDrawData)
+        //    delete s_materialDrawData;
+
+        //s_materialDrawData = new CDXDrawData();
+        //s_materialDrawData->dataType = CDXDrawData::DrawDataType_e::TEXTURE;
+
         selectedResource = { .resourceBindPoint = -1 }; // [rika]: just set to the base one, don't want the last mip like textures.
         //selectedTexture.reset();
         selectedTexture = NULL;
@@ -627,7 +636,7 @@ void* PreviewMaterialAsset(CAsset* const asset, const bool firstFrameForAsset)
                                 }
                                 else
                                 {
-                                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                                    ImGui::PushStyleColor(ImGuiCol_Text, Styles::TEXTCOL_NOT_LOADED);
                                     ImGui::TextUnformatted("Not Loaded");
                                     ImGui::PopStyleColor();
                                 }
@@ -638,7 +647,6 @@ void* PreviewMaterialAsset(CAsset* const asset, const bool firstFrameForAsset)
 
                         ImGui::EndTable();
                     }
-
                 }
 
                 if (selectedTexture)
@@ -650,8 +658,16 @@ void* PreviewMaterialAsset(CAsset* const asset, const bool firstFrameForAsset)
                     auto txtrBinding = g_assetData.m_assetTypeBindings.find('rtxt');
                     if (txtrBinding != g_assetData.m_assetTypeBindings.end()) LIKELY
                     {
-                        txtrBinding->second.previewFunc(selectedTexture, firstFrameForTxtrAsset);
+                        s_materialDrawData = (CDXDrawData*)txtrBinding->second.previewFunc(selectedTexture, firstFrameForTxtrAsset);
                     }
+                }
+                else
+                {
+                    // [rexx]
+                    // This is pretty bad.
+                    // This causes s_textureDrawData to be temporarily leaked until another material has textures selected
+                    // Freeing s_materialDrawData in this function causes a double free though, so it's good enough i think?
+                    s_materialDrawData = nullptr;
                 }
             }
             ImGui::EndChild();
@@ -679,7 +695,7 @@ void* PreviewMaterialAsset(CAsset* const asset, const bool firstFrameForAsset)
         ImGui::EndTabBar();
     }
 
-    return nullptr;
+    return s_materialDrawData;
 }
 
 enum eMaterialExportSetting

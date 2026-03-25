@@ -102,7 +102,7 @@ const HWND SetupWindow()
 
     RegisterClassExW(&windowClass);
 
-    return CreateWindowW(
+    HWND wnd = CreateWindowW(
         windowClass.lpszClassName,
         L"reSource Xtractor",
         WS_OVERLAPPEDWINDOW,
@@ -111,5 +111,7 @@ const HWND SetupWindow()
         nullptr, nullptr,
         windowClass.hInstance,
         nullptr
-    );;
+    );
+
+    return wnd;
 }

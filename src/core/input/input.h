@@ -115,6 +115,7 @@ public:
 
 	bool keyboardCaptured; // is the input being captured by the window
 	bool mouseCaptured;
+	bool applyMouseInput;
 
 private:
 	std::map<KeyCode_t, bool> keyStates;

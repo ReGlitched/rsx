@@ -20,6 +20,8 @@
 #include <game/rtech/assets/settings.h>
 #include <core/render/preview/preview.h>
 
+#include "render/ui/styles.h"
+
 extern CDXParentHandler* g_dxHandler;
 extern std::atomic<uint32_t> g_maxConcurrentThreadCount;
 extern ExportSettings_t g_ExportSettings;
@@ -97,9 +99,9 @@ void ColouredTextForAssetType(const CAsset* const asset)
         ImGui::Text("%s %s", fourCCToString(asset->GetAssetType()).c_str(), asset->GetAssetVersion().ToString().c_str());
         break;
     }
-    default:
+    [[unlikely]] default:
     {
-        ImGui::Text("unimpl");
+        ImGui::TextUnformatted("unimpl");
         break;
     }
     }
@@ -202,7 +204,7 @@ void PreviewWnd_AssetDepsTbl(CAsset* asset)
                     }
                     else
                     {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                        ImGui::PushStyleColor(ImGuiCol_Text, Styles::TEXTCOL_NOT_LOADED);
                         ImGui::TextUnformatted("Not Loaded");
                     }
 
@@ -236,14 +238,18 @@ void SettingsWnd_Draw(CUIState* uiState)
 {
     constexpr uint32_t minThreads = 1u;
 
-    ImGui::SetNextWindowSize(ImVec2(0.f, 0.f), ImGuiCond_Always);
-    if (ImGui::Begin("Settings", &uiState->settingsWindowVisible, ImGuiWindowFlags_None))
+    ImGui::SetNextWindowSize(ImVec2(0.f, 500.f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Settings", &uiState->settingsWindowVisible, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse))
     {
+#if !defined(_DEBUG) && !defined(NO_LIBCURL)
+        // ===============================================================================================================
         ImGui::SeparatorText("General");
 
         ImGui::Checkbox("Check for updates", &UtilsConfig->checkForUpdates);
         ImGui::SameLine();
-        ImGuiExt::HelpMarker("RSX will check for updates against the GitHub repository on startup and let the user know if they should update");
+        ImGuiExt::HelpMarker("RSX will check for updates against the GitHub repository when opened.\nIf there is a new update available, a message will be displayed on the RSX welcome dialog box");
+#endif
+        
         // ===============================================================================================================
         ImGui::SeparatorText("Export");
 
@@ -255,18 +261,18 @@ void SettingsWnd_Draw(CUIState* uiState)
         ImGui::SameLine();
         ImGuiExt::HelpMarker("Enables exporting of all dependencies that are associated with any asset that is being exported.");
 
-        ImGui::Checkbox("Disable CacheDB names", &g_ExportSettings.disableCachedNames);
+        ImGui::Checkbox("Disable CacheDB loading", &g_ExportSettings.disableCachedNames);
         ImGui::SameLine();
-        ImGuiExt::HelpMarker("Disables loading names from the cache file, new names will still be added.");
+        ImGuiExt::HelpMarker("Disables loading names from the cache file. The cache will still be updated, but RSX will not display any cached data");
 
         // texture settings
         ImGui::SeparatorText("Export (Textures)");
 
-        ImGui::Combo("Material Texture Names", reinterpret_cast<int*>(&g_ExportSettings.exportTextureNameSetting), s_TextureExportNameSetting, static_cast<int>(ARRAYSIZE(s_TextureExportNameSetting)));
+        ImGui::Combo("Material Texture Naming", reinterpret_cast<int*>(&g_ExportSettings.exportTextureNameSetting), s_TextureExportNameSetting, static_cast<int>(ARRAYSIZE(s_TextureExportNameSetting)));
         ImGui::SameLine();
         ImGuiExt::HelpMarker("Naming scheme for exporting textures via materials options are as follows:\nGUID: exports only using the asset's GUID as a name.\nReal: exports texture using a real name (asset name or guid if no name).\nText: exports the texture with a text name always, generating one if there is none provided.\nSemantic: exports with a generated name all the time, useful for models.");
 
-        ImGui::Combo("Normal Recalc", reinterpret_cast<int*>(&g_ExportSettings.exportNormalRecalcSetting), s_NormalExportRecalcSetting, static_cast<int>(ARRAYSIZE(s_NormalExportRecalcSetting)));
+        ImGui::Combo("Normal Recalculation", reinterpret_cast<int*>(&g_ExportSettings.exportNormalRecalcSetting), s_NormalExportRecalcSetting, static_cast<int>(ARRAYSIZE(s_NormalExportRecalcSetting)));
         ImGui::SameLine();
         ImGuiExt::HelpMarker("None: exports the normal as it is stored.\nDirectX: exports with a generated blue channel.\nOpenGL: exports with a generated blue channel and inverts the green channel.");
 
@@ -334,13 +340,11 @@ void SettingsWnd_Draw(CUIState* uiState)
         // ===============================================================================================================
         ImGui::SeparatorText("Preview");
 
-        ImGui::SliderFloat("Cull Distance", &g_PreviewSettings.previewCullDistance, PREVIEW_CULL_MIN, PREVIEW_CULL_MAX);
-        ImGui::SameLine();
-        ImGuiExt::HelpMarker("Distance at which render of 3D objects will stop. Note: only updated on startup.\n"); // todo: recreate projection matrix ?
+        if (ImGui::SliderFloat("Cull Distance", &g_PreviewSettings.previewCullDistance, PREVIEW_CULL_MIN, PREVIEW_CULL_MAX))
+            g_dxHandler->UpdateProjectionMatrix();
 
-        ImGui::SliderFloat("Movement Speed", &g_PreviewSettings.previewMovementSpeed, PREVIEW_SPEED_MIN, PREVIEW_SPEED_MAX);
         ImGui::SameLine();
-        ImGuiExt::HelpMarker("Speed at which the camera moves through the 3D scene.\n");
+        ImGuiExt::HelpMarker("Distance at which render of 3D objects will stop.");
 
         // ===============================================================================================================
         ImGui::SeparatorText("Export Formats");
@@ -352,9 +356,8 @@ void SettingsWnd_Draw(CUIState* uiState)
                 ImGui::Combo(fourCCToString(it.first).c_str(), &it.second.e.exportSetting, it.second.e.exportSettingArr, static_cast<int>(it.second.e.exportSettingArrSize));
             }
         }
-
-        ImGui::End();
     }
+    ImGui::End();
 }
 extern void ItemflavWnd_Draw(CUIState*);
 extern void LogWnd_Draw(CUIState*);
@@ -486,6 +489,17 @@ void MainWnd_WelcomeBox()
                 CThread(HandleOpenFileDialog, g_dxHandler->GetWindowHandle()).detach();
             }
 
+            CUIState& uiState = g_dxHandler->GetUIState();
+
+            if (UtilsConfig->checkForUpdates && uiState.newVersionType)
+            {
+                ImGui::Separator();
+                ImGui::Text("There's a new update available for RSX! Download the latest %s version from", uiState.newVersionType);
+                ImGui::SameLine();
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() - 5.f);
+                ImGui::TextLinkOpenURL("here!", uiState.newVersionReleaseInfo.htmlUrl.c_str());
+            }
+
             ImGui::End();
         }
     }
@@ -517,7 +531,6 @@ void HandleRenderFrame()
         }
         //ImGui::SetNextWindowBgAlpha(0.f);
         ImGui::DockSpaceOverViewport(dockspaceId, NULL, ImGuiDockNodeFlags_PassthruCentralNode, 0);
-
     }
 
     // while ImGui is using keyboard input, we should not accept any keyboard input, but we should also clear all  
@@ -526,8 +539,7 @@ void HandleRenderFrame()
     if (ImGui::GetIO().WantCaptureKeyboard)
         g_pInput->ClearKeyStates();
 
-    if (g_pInput->mouseCaptured)
-        g_pInput->Frame(ImGui::GetIO().DeltaTime);
+    g_pInput->Frame(ImGui::GetIO().DeltaTime);
 
     g_dxHandler->GetCamera()->Move(ImGui::GetIO().DeltaTime);
 
@@ -542,8 +554,6 @@ void HandleRenderFrame()
     MainWnd_WelcomeBox();
 
     CDXDrawData* previewDrawData = nullptr;
-
-    static size_t prevAssetCount = g_assetData.v_assets.size();
 
     const bool shouldPopulateAssetWindows = !inJobAction && !g_assetData.v_assetContainers.empty();
 
@@ -633,7 +643,7 @@ void HandleRenderFrame()
         }
 
         // OR case if we load a pak and the filter is not cleared yet.
-        if (FilterConfig->textFilter.Draw("##Filter", -1.f) || (s_filteredAssets.empty() && FilterConfig->textFilter.IsActive()) || prevAssetCount != g_assetData.v_assets.size())
+        if (FilterConfig->textFilter.Draw("##Filter", -1.f) || (s_filteredAssets.empty() && FilterConfig->textFilter.IsActive()))
         {
             s_filteredAssets.clear();
             for (auto& it : g_assetData.v_assets)
@@ -750,7 +760,7 @@ void HandleRenderFrame()
     }
     ImGui::End();
 
-    // This window must be executed before "Scene", as the scene relies on previewDrawData already being set from here
+    // This window must be drawn before "Scene", as the scene relies on previewDrawData already being set from here
     if (ImGui::Begin("Asset Info", nullptr, ImGuiWindowFlags_MenuBar) && shouldPopulateAssetWindows)
     {
         CAsset* const firstAsset = s_selectedAssets.empty() ? nullptr : *s_selectedAssets.begin();
@@ -776,8 +786,8 @@ void HandleRenderFrame()
         const std::string assetName = !firstAsset ? "(none)" : firstAsset->GetAssetName();
         const std::string assetGuidStr = !firstAsset ? "(none)" : std::format("{:X}", firstAsset->GetAssetGUID());
 
-        ImGuiExt::ConstTextInputLeft("Asset Name", assetName.c_str(), 70);
-        ImGuiExt::ConstTextInputLeft("Asset GUID", assetGuidStr.c_str(), 70);
+        ImGuiExt::ConstTextInputLeft("Name", assetName.c_str(), 50);
+        ImGuiExt::ConstTextInputLeft("GUID", assetGuidStr.c_str(), 50);
 
         // Dependency information only exists for PAK assets
         if (firstAsset && firstAsset->GetAssetContainerType() == CAsset::ContainerType::PAK)
@@ -785,9 +795,11 @@ void HandleRenderFrame()
             const PakAsset_t* const pakAsset = static_cast<CPakAsset*>(firstAsset)->data();
 
             ImGui::Text("Number of Dependencies: %hu", pakAsset->dependenciesCount);
+            ImGui::SameLine();
             ImGuiExt::HelpMarker("This is the number of assets in the same .rpak file as this asset that are required by this asset");
 
             ImGui::Text("Number of Dependent Assets: %hu", pakAsset->dependentsCount);
+            ImGui::SameLine();
             ImGuiExt::HelpMarker("This is the number of assets in the same .rpak file as this asset that use this asset");
 
             PreviewWnd_AssetDepsTbl(firstAsset);
@@ -798,7 +810,7 @@ void HandleRenderFrame()
         ImGui::Separator();
 
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
-        ImGui::Dummy(ImVec2(0, 0));
+        ImGui::Dummy(ImVec2(0, 0)); // Required just in case there are no ImGui elements in the below preview call
         if (firstAsset)
         {
             const uint32_t type = firstAsset->GetAssetType();
@@ -825,7 +837,7 @@ void HandleRenderFrame()
     // Setting NoMove seems to be the best way to stop it from being undocked
     if (ImGui::Begin("Scene", nullptr, ImGuiWindowFlags_NoMove))
     {
-        ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
 
         if (avail != s_previousAvailableSizeForPreview || !g_dxHandler->GetPreviewRTV())
         {
@@ -835,163 +847,21 @@ void HandleRenderFrame()
 
         s_previousAvailableSizeForPreview = avail;
 
-        // Preview rendering
-        ID3D11Device* const device = g_dxHandler->GetDevice();
-        CDXScene& scene = g_dxHandler->GetScene();
-        ID3D11DeviceContext* const ctx = g_dxHandler->GetDeviceContext();
-
-        // TODO: UPDATE THIS FOR PREVIEW SHIT.
-        ID3D11RenderTargetView* const previewRTV = g_dxHandler->GetPreviewRTV();
-        static constexpr float clear_color_with_alpha[4] = { 0.01f, 0.01f, 0.01f, 1.00f };
-
-        ctx->OMSetRenderTargets(1, &previewRTV, g_dxHandler->GetPreviewDSV());
-        ctx->ClearRenderTargetView(previewRTV, clear_color_with_alpha);
-        ctx->ClearDepthStencilView(g_dxHandler->GetPreviewDSV(), D3D11_CLEAR_DEPTH, 1, 0);
-
-        const D3D11_VIEWPORT vp = {
-            0, 0,
-            static_cast<float>(avail.x),
-            static_cast<float>(avail.y),
-            0, 1
-        };
-
-        ctx->RSSetViewports(1u, &vp);
-        ctx->RSSetState(g_dxHandler->GetRasterizerState());
-        ctx->OMSetDepthStencilState(g_dxHandler->GetDepthStencilState(), 1u);
-
-#if defined(ADVANCED_MODEL_PREVIEW)
-        // Update CBufCommonPerCamera
-        g_dxHandler->GetCamera()->CommitCameraDataBufferUpdates();
-
-        scene.UpdateHardwareLights();
-        scene.UpdateCubemapSamples();
-
-        if (scene.NeedsLightingUpdate())
-            scene.MapAndUpdateLightBuffer(device, ctx);
-
-        if (scene.NeedsCubemapSmpUpdate())
-            scene.MapAndUpdateCubemapSamplesBuffer(device, ctx);
-#else
-        UNUSED(device);
-#endif
-
         if (previewDrawData)
         {
-            previewDrawData->SetPSResource(PSRSRC_CUBEMAP, g_dxHandler->GetCubemapSRV());
-            previewDrawData->SetPSResource(PSRSRC_CSMDEPTHATLASSAMPLER, g_dxHandler->GetCSMDepthAtlasSamplerSRV());
-            previewDrawData->SetPSResource(PSRSRC_SHADOWMAP, g_dxHandler->GetShadowMapSRV());
-            previewDrawData->SetPSResource(PSRSRC_CLOUDMASK, g_dxHandler->GetCloudMaskSRV());
-            previewDrawData->SetPSResource(PSRSRC_STATICSHADOWTEXTURE, g_dxHandler->GetStaticShadowTexSRV());
-
-            CDXCamera* const camera = g_dxHandler->GetCamera();
-
-            if (previewDrawData->vertexShader && previewDrawData->pixelShader) LIKELY
+            switch (previewDrawData->dataType)
             {
-                ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-                assertm(previewDrawData->transformsBuffer, "uh oh something very bad happened!!!!!!");
-
-                ctx->VSSetConstantBuffers(0u, 1u, &previewDrawData->transformsBuffer); // VS_TransformConstants/CBufModelInstance
-
-                UINT offset = 0u;
-
-                for (size_t i = 0; i < previewDrawData->meshBuffers.size(); ++i)
-                {
-                    const DXMeshDrawData_t& meshDrawData = previewDrawData->meshBuffers[i];
-
-                    if (!meshDrawData.visible || !meshDrawData.vertexShader || !meshDrawData.pixelShader)
-                        continue;
-
-                    ctx->RSSetState(meshDrawData.wireframe ? g_dxHandler->GetRasterizerStateWireFrame() : g_dxHandler->GetRasterizerState());
-
-                    assertm(meshDrawData.vertexShader != nullptr, "No vertex shader?");
-                    assertm(meshDrawData.pixelShader != nullptr, "No pixel shader?");
-
-                    ctx->IASetInputLayout(meshDrawData.inputLayout);
-                    ctx->VSSetShader(meshDrawData.vertexShader, nullptr, 0u);
-
-                    ID3D11Buffer* sharedConstBuffers[] = {
-                        camera->bufCommonPerCamera,           // CBufCommonPerCamera - b2
-                        previewDrawData->modelInstanceBuffer, // CBufModelInstance   - b3
-                    };
-
-                    for (auto& rsrc : previewDrawData->vertexShaderResources)
-                    {
-                        ctx->VSSetShaderResources(rsrc.first, 1u, &rsrc.second);
-                    }
-
-                    // [AMP]
-                    if (meshDrawData.hasGameShaders)
-                    {
-                        // VertexShader: CBufCommonPerCamera, CBufModelInstance
-                        ctx->VSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
-
-                        // VertexShader: g_boneMatrix, g_boneMatrixPrevFrame
-                        ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX, 1u, &previewDrawData->boneMatrixSRV);
-                        ctx->VSSetShaderResources(VSRSRC_BONE_MATRIX_PREV_FRAME, 1u, &previewDrawData->boneMatrixSRV);
-                    }
-
-                    ctx->IASetVertexBuffers(0u, 1u, &meshDrawData.vertexBuffer, &meshDrawData.vertexStride, &offset);
-                    // ==============================================================================
-
-                    assertm(meshDrawData.pixelShader != nullptr, "No pixel shader?");
-
-                    ctx->PSSetShader(meshDrawData.pixelShader, nullptr, 0u);
-
-                    ID3D11SamplerState* const samplerState = g_dxHandler->GetSamplerState();
-
-                    // [AMP] Samplers, Lights, CBufs
-                    if (meshDrawData.hasGameShaders)
-                    {
-                        ID3D11SamplerState* samplers[] = {
-                            g_dxHandler->GetSamplerComparisonState(),
-                            samplerState,
-                            samplerState,
-                        };
-                        ctx->PSSetSamplers(0, ARRSIZE(samplers), samplers);
-
-                        if (meshDrawData.uberStaticBuf)
-                            ctx->PSSetConstantBuffers(0u, 1u, &meshDrawData.uberStaticBuf);
-
-                        if (meshDrawData.uberDynamicBuf)
-                            ctx->PSSetConstantBuffers(1u, 1u, &meshDrawData.uberDynamicBuf);
-
-                        // PixelShader: CBufCommonPerCamera, CBufModelInstance
-                        ctx->PSSetConstantBuffers(2u, ARRSIZE(sharedConstBuffers), sharedConstBuffers);
-
-                        // PixelShader: s_globalLights
-                        ctx->PSSetShaderResources(PSRSRC_GLOBAL_LIGHTS, 1u, &scene.globalLightsSRV);
-                        ctx->PSSetShaderResources(PSRSRC_CUBEMAP_SAMPLES, 1u, &scene.cubemapSamplesSRV);
-                    }
-                    else
-                        ctx->PSSetSamplers(0, 1, &samplerState);
-
-                    // Bind texture resources for this mesh's material
-                    for (auto& tex : meshDrawData.textures)
-                    {
-                        ID3D11ShaderResourceView* const textureSRV = tex.texture
-                            ? tex.texture.get()->GetSRV()
-                            : nullptr;
-
-                        ctx->PSSetShaderResources(tex.resourceBindPoint, 1u, &textureSRV);
-                    }
-
-                    // Bind pixel shader resources
-                    for (auto& rsrc : previewDrawData->pixelShaderResources)
-                    {
-                        ctx->PSSetShaderResources(rsrc.first, 1u, &rsrc.second);
-                    }
-
-                    // ==============================================================================
-                    ctx->IASetIndexBuffer(meshDrawData.indexBuffer, meshDrawData.indexFormat, 0u);
-                    ctx->DrawIndexed(static_cast<UINT>(meshDrawData.numIndices), 0u, 0u);
-                }
+            case CDXDrawData::DrawDataType_e::MODEL:
+                Preview_Model(previewDrawData);
+                break;
+            case CDXDrawData::DrawDataType_e::TEXTURE:
+                Preview_Texture(previewDrawData);
+                break;
+            default:
+            {
+                assertm(0, "Invalid preview draw data type. Expected either MODEL or TEXTURE");
+                break;
             }
-            else assertm(0, "Failed to load shaders for model preview.");
-
-            if (g_dxHandler->GetPreviewFrameBuffer())
-            {
-                ImGui::Image(g_dxHandler->GetPreviewFrameBufferSRV(), avail);
             }
         }
     }
@@ -1018,20 +888,7 @@ void HandleRenderFrame()
         ImGui::RenderPlatformWindowsDefault();
     }
 
-    // Preview rendering
-    ID3D11Device* const device = g_dxHandler->GetDevice();
-    CDXScene& scene = g_dxHandler->GetScene();
     ID3D11DeviceContext* const ctx = g_dxHandler->GetDeviceContext();
-
-#if !defined(ADVANCED_MODEL_PREVIEW)
-    UNUSED(device);
-    UNUSED(scene);
-#endif
-
-
-    
-
-    prevAssetCount = g_assetData.v_assets.size();
 
     ID3D11RenderTargetView* const mainView = g_dxHandler->GetMainView();
     static constexpr float clear_color_with_alpha[4] = { 0.01f, 0.01f, 0.01f, 1.00f };

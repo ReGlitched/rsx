@@ -49,9 +49,11 @@ ModelFrameMovement_t::ModelFrameMovement_t(const r5::mstudioframemovement_t* con
 }
 
 // animdesc
-ModelAnim_t::ModelAnim_t(const ModelAnim_t& animdesc) : baseptr(animdesc.baseptr), name(animdesc.name), fps(animdesc.fps), flags(animdesc.flags), numframes(animdesc.numframes), animindex(animdesc.animindex),
+ModelAnim_t::ModelAnim_t(const ModelAnim_t& animdesc) : baseptr(animdesc.baseptr), name(animdesc.name), fps(animdesc.fps),
+	flags(animdesc.flags), numframes(animdesc.numframes), animindex(animdesc.animindex),
 	nummovements(animdesc.nummovements), movements(animdesc.movements), framemovement(nullptr), numikrules(animdesc.numikrules), ikrules(nullptr),
-	sectionframes(animdesc.sectionframes), sectionstallframes(animdesc.sectionstallframes), numsections(animdesc.numsections), sections(nullptr), sectionDataExtra(animdesc.sectionDataExtra), animData(animdesc.animData), animDataAsset(animdesc.animDataAsset), parsedBufferIndex(animdesc.parsedBufferIndex)
+	sectionframes(animdesc.sectionframes), sectionstallframes(animdesc.sectionstallframes), numsections(animdesc.numsections), sections(nullptr),
+	sectionDataExtra(animdesc.sectionDataExtra), animData(animdesc.animData), animDataAsset(animdesc.animDataAsset), parsedBufferIndex(animdesc.parsedBufferIndex)
 {
 	if (animdesc.sections)
 	{
@@ -78,9 +80,11 @@ ModelAnim_t::ModelAnim_t(const ModelAnim_t& animdesc) : baseptr(animdesc.baseptr
 	}
 }
 
-ModelAnim_t::ModelAnim_t(const r2::mstudioanimdesc_t* const animdesc) : baseptr(reinterpret_cast<const void* const>(animdesc)), name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
+ModelAnim_t::ModelAnim_t(const r2::mstudioanimdesc_t* const animdesc) : baseptr(reinterpret_cast<const void* const>(animdesc)),
+	name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
 	nummovements(animdesc->nummovements), movements(animdesc->pMovement(0)), framemovement(nullptr), numikrules(animdesc->numikrules), ikrules(nullptr),
-	sectionframes(animdesc->sectionframes), sectionstallframes(0), numsections(0), sections(nullptr), sectionDataExtra(nullptr), animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
+	sectionframes(animdesc->sectionframes), sectionstallframes(0), numsections(0), sections(nullptr), sectionDataExtra(nullptr),
+	animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
 {
 	flags |= eStudioAnimFlags::ANIM_VALID;
 
@@ -111,9 +115,11 @@ ModelAnim_t::ModelAnim_t(const r2::mstudioanimdesc_t* const animdesc) : baseptr(
 	}
 };
 
-ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v8_t* const animdesc) : baseptr(reinterpret_cast<const void* const>(animdesc)), name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
+ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v8_t* const animdesc) : baseptr(reinterpret_cast<const void* const>(animdesc)),
+	name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
 	nummovements(animdesc->nummovements), movements(animdesc->pMovement(0)), framemovement(nullptr), numikrules(animdesc->numikrules), ikrules(nullptr),
-	sectionframes(animdesc->sectionframes), sectionstallframes(0), numsections(0), sections(nullptr), sectionDataExtra(nullptr), animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
+	sectionframes(animdesc->sectionframes), sectionstallframes(0), numsections(0), sections(nullptr), sectionDataExtra(nullptr),
+	animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
 {
 	// [rika]: there's no point to parse these without this flag, and we can't determine what the count will be properly
 	// [rika]: it will also never get hit by a panim function, so no need to worry there
@@ -144,9 +150,11 @@ ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v8_t* const animdesc) : basep
 	}
 };
 
-ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v12_1_t* const animdesc, const char* const ext) : baseptr(reinterpret_cast<const void* const>(animdesc)), name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
+ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v12_1_t* const animdesc, const char* const ext) : baseptr(reinterpret_cast<const void* const>(animdesc)),
+	name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
 	nummovements(animdesc->nummovements), movements(animdesc->pMovement(0)), framemovement(nullptr), numikrules(animdesc->numikrules), ikrules(nullptr),
-	sectionframes(animdesc->sectionframes), sectionstallframes(animdesc->sectionstallframes), numsections(0), sections(nullptr), sectionDataExtra(ext), animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
+	sectionframes(animdesc->sectionframes), sectionstallframes(animdesc->sectionstallframes), numsections(0), sections(nullptr),
+	sectionDataExtra(ext), animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
 {
 	// [rika]: there's no point to parse these without this flag, and we can't determine what the count will be properly
 	// [rika]: it will also never get hit by a panim function, so no need to worry there
@@ -177,9 +185,11 @@ ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v12_1_t* const animdesc, cons
 	}
 };
 
-ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v16_t* const animdesc, const char* const ext) : baseptr(reinterpret_cast<const void* const>(animdesc)), name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
+ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v16_t* const animdesc, const char* const ext) : baseptr(reinterpret_cast<const void* const>(animdesc)),
+	name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(animdesc->animindex),
 	nummovements(0), movements(nullptr), framemovement(nullptr), numikrules(animdesc->numikrules), ikrules(nullptr),
-	sectionframes(animdesc->sectionframes), sectionstallframes(animdesc->sectionstallframes), numsections(0), sections(nullptr), sectionDataExtra(ext), animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
+	sectionframes(animdesc->sectionframes), sectionstallframes(animdesc->sectionstallframes), numsections(0), sections(nullptr),
+	sectionDataExtra(ext), animData(nullptr), animDataAsset(0ull), parsedBufferIndex(invalidNoodleIdx)
 {
 	// [rika]: there's no point to parse these without this flag, and we can't determine what the count will be properly
 	// [rika]: it will also never get hit by a panim function, so no need to worry there
@@ -210,9 +220,11 @@ ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v16_t* const animdesc, const 
 	}
 };
 
-ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v19_1_t* const animdesc, const char* const ext) : baseptr(reinterpret_cast<const void* const>(animdesc)), name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(0),
+ModelAnim_t::ModelAnim_t(const r5::mstudioanimdesc_v19_1_t* const animdesc, const char* const ext) : baseptr(reinterpret_cast<const void* const>(animdesc)),
+	name(animdesc->pszName()), fps(animdesc->fps), flags(animdesc->flags), numframes(animdesc->numframes), animindex(0),
 	nummovements(0), movements(nullptr), framemovement(nullptr), numikrules(animdesc->numikrules), ikrules(nullptr),
-	sectionframes(animdesc->sectionframes), sectionstallframes(animdesc->sectionstallframes), numsections(0), sections(nullptr), sectionDataExtra(ext), animData(nullptr), animDataAsset(animdesc->animDataAsset), parsedBufferIndex(invalidNoodleIdx)
+	sectionframes(animdesc->sectionframes), sectionstallframes(animdesc->sectionstallframes), numsections(0), sections(nullptr),
+	sectionDataExtra(ext), animData(nullptr), animDataAsset(animdesc->animDataAsset), parsedBufferIndex(invalidNoodleIdx)
 {
 	// [rika]: there's no point to parse these without this flag, and we can't determine what the count will be properly
 	// [rika]: it will also never get hit by a panim function, so no need to worry there
@@ -311,7 +323,8 @@ const char* const ModelAnim_t::pAnimdataStall_0(int* const piFrame, int* const _
 	return ((char*)baseptr + index);
 }
 
-// [rika]: revision that appeared when datapoint animations were added, does not read the trailing section of rle animations, and stores the section's frame length
+// [rika]: revision that appeared when datapoint animations were added, does not read the trailing section of rle animations,
+//         and stores the section's frame length
 const char* const ModelAnim_t::pAnimdataStall_1(int* const piFrame, int* const pSectionLength) const
 {
 	int index = animindex;
@@ -350,7 +363,9 @@ const char* const ModelAnim_t::pAnimdataStall_1(int* const piFrame, int* const p
 
 			// we will stall if this is not loaded, for whatever reason
 			index = pSection(0)->animindex;
-			*piFrame = sectionstallframes - 1; // gets set to last frame of 'static'/'stall' section if the external data offset has not been cached(?)
+
+			// gets set to last frame of 'static'/'stall' section if the external data offset has not been cached(?)
+			*piFrame = sectionstallframes - 1;
 		}
 	}
 
@@ -358,7 +373,8 @@ const char* const ModelAnim_t::pAnimdataStall_1(int* const piFrame, int* const p
 	return ((char*)baseptr + index);
 }
 
-// [rika]: built upon the previous revision, but animindex is missing along with the first section, they're always assumed to be in the animdata asset
+// [rika]: built upon the previous revision, but animindex is missing along with the first section,
+//         they're always assumed to be in the animdata asset
 const char* const ModelAnim_t::pAnimdataStall_2(int* const piFrame, int* const pSectionLength) const
 {
 	int index = 0;
@@ -485,7 +501,7 @@ ModelSeq_t::ModelSeq_t(const r2::mstudioseqdesc_t* const seqdesc) : baseptr(rein
 
 }
 
-// putting a note here, apex can have numblends set to 0, despite having anims
+// putting a note here, apex can have numblends set to 0 despite having anims
 #define ANIMDESC_SANITY_CHECK(anim) (anim->fps < 0.0f || anim->fps > 2048.f || anim->numframes < 0 || anim->numframes > 0x20000)
 ModelSeq_t::ModelSeq_t(const r5::mstudioseqdesc_v8_t* const seqdesc) : baseptr(reinterpret_cast<const void* const>(seqdesc)), szlabel(seqdesc->pszLabel()), szactivityname(seqdesc->pszActivityName()), flags(seqdesc->flags), actweight(seqdesc->actweight),
 	events(nullptr), numevents(seqdesc->numevents), blends(defaultSequenceBlends), numblends(seqdesc->groupsize[0] * seqdesc->groupsize[1]), fadeintime(seqdesc->fadeintime), fadeouttime(seqdesc->fadeouttime), localentrynode(seqdesc->localentrynode), localexitnode(seqdesc->localexitnode), nodeflags(seqdesc->nodeflags),

@@ -2,6 +2,7 @@
 #include <game/rtech/assets/texture.h>
 #include <core/render/dx.h>
 #include <thirdparty/imgui/imgui.h>
+#include <core/render/ui/styles.h>
 
 extern CDXParentHandler* g_dxHandler;
 extern ExportSettings_t g_ExportSettings;
@@ -369,10 +370,13 @@ struct TexturePreviewData_t
         TPC_Dimensions,
         TPC_Status,
         TPC_Type,
-        TPC_Comp,
         TPC_Origin,
 
         _TPC_COUNT,
+
+        // not currently used
+        TPC_Comp,
+
     };
 
     const char* typeName; // perm, stream, opt stream
@@ -429,12 +433,12 @@ struct TexCompare_t
     }
 };
 
+static CDXDrawData* s_textureDrawData = nullptr;
 void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
 {
     CPakAsset* pakAsset = static_cast<CPakAsset*>(asset);
     TextureAsset* const txtrAsset = pakAsset->extraData<TextureAsset* const>();
 
-    static float textureZoom = 1.0f;
     static uint8_t lastSelectedMip = 0xff;
     static TexturePreviewData_t selectedMip { .index = 0xff };
     static std::shared_ptr<CTexture> selectedMipTexture = nullptr;
@@ -463,6 +467,12 @@ void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
     static uint8_t previewMipSize = 0;
     if (firstFrameForAsset) // Reset if new asset.
     {
+        if(s_textureDrawData)
+            delete s_textureDrawData;
+
+        s_textureDrawData = new CDXDrawData();
+        s_textureDrawData->dataType = CDXDrawData::DrawDataType_e::TEXTURE;
+
         // no reason to update if the array size hasn't changed
         if (txtrAsset->arraySize != previewArrays.size())
         {
@@ -509,7 +519,14 @@ void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
                 if (mip.type == eTextureMipType::RPak)
                     targetStem = asset->GetContainerFileName();
                 else
-                    targetStem = pakAsset->getStarPakName(mip.type == eTextureMipType::OptStarPak);
+                {
+                    const char* starpakName = nullptr;
+
+                    if ((starpakName = pakAsset->getStarPakName(mip.type == eTextureMipType::OptStarPak)))
+                        targetStem = starpakName;
+                    else
+                        targetStem = "N/A";
+                }
 
                 previewData.dataOrigin = targetStem.c_str();
             }
@@ -567,7 +584,8 @@ void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
             ImGui::TableSetupColumn("Dimensions", ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed, 0.0f, TexturePreviewData_t::eColumnID::TPC_Dimensions);
             ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed, 0.0f, TexturePreviewData_t::eColumnID::TPC_Status);
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed, 0.0f, TexturePreviewData_t::eColumnID::TPC_Type);
-            ImGui::TableSetupColumn("Compression", ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed, 0.0f, TexturePreviewData_t::eColumnID::TPC_Comp);
+            // for some reason this column doesn't actually get any data set to it?
+            //ImGui::TableSetupColumn("Compression", ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed, 0.0f, TexturePreviewData_t::eColumnID::TPC_Comp);
             ImGui::TableSetupColumn("Origin", ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_WidthFixed, 0.0f, TexturePreviewData_t::eColumnID::TPC_Origin);
             ImGui::TableSetupScrollFreeze(1, 1);
 
@@ -627,7 +645,7 @@ void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
                     }
                     else
                     {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.f, 0.f, 0.f, 1.f));
+                        ImGui::PushStyleColor(ImGuiCol_Text, Styles::TEXTCOL_NOT_LOADED);
                         ImGui::TextUnformatted("Not Loaded");
                         ImGui::PopStyleColor();
                     }
@@ -644,82 +662,10 @@ void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
 
             ImGui::EndTable();
         }
-    }
+    }    
 
-    
-
-    CTexture* const selectedMipTxtr = selectedMipTexture.get();
-    if (selectedMipTxtr)
-    {
-        const float aspectRatio = static_cast<float>(selectedMipTxtr->GetWidth()) / selectedMipTxtr->GetHeight();
-
-        float imageHeight = std::max(std::clamp(static_cast<float>(selectedMipTxtr->GetHeight()), 0.f, std::max(ImGui::GetContentRegionAvail().y, 1.f)) - 2.5f, 4.f);
-        float imageWidth = imageHeight * aspectRatio;
-
-        imageWidth *= textureZoom;
-        imageHeight *= textureZoom;
-
-        ImGuiStyle& style = ImGui::GetStyle();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + style.FramePadding.y);
-
-        ImGui::Separator();
-        ImGui::Text("Scale: %.f%%", textureZoom * 100.f);
-        ImGui::SameLine();
-        ImGui::NextColumn();
-
-        constexpr const char* const zoomHelpText = "Hold CTRL and scroll to zoom";
-        IMGUI_RIGHT_ALIGN_FOR_TEXT(zoomHelpText);
-        ImGui::TextUnformatted(zoomHelpText);
-        if (ImGui::BeginChild("Texture Preview", ImVec2(0.f, 0.f), true, ImGuiWindowFlags_HorizontalScrollbar)) // [rika]: todo smaller screens will not have the most ideal viewing experience do to the image being squashed
-        {
-            const bool previewHovering = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
-            ImGui::Image(selectedMipTxtr->GetSRV(), ImVec2(imageWidth, imageHeight));
-            if (previewHovering && ImGui::GetIO().KeyCtrl)
-            {
-                const float wheel = ImGui::GetIO().MouseWheel;
-                const float scrollZoomFactor = ImGui::GetIO().KeyAlt ? (1.f / 20.f) : (1.f / 10.f);
-
-                if (wheel != 0.0f)
-                    textureZoom += (wheel * scrollZoomFactor);
-
-                textureZoom = std::clamp(textureZoom, 0.1f, 5.0f);
-            }
-
-            static bool resetPos = true;
-            static ImVec2 posPrev;
-            if (previewHovering && ImGui::GetIO().MouseDown[2] && !ImGui::GetIO().KeyCtrl) // middle mouse
-            {
-                ImVec2 posCur = ImGui::GetIO().MousePos;
-
-                if (resetPos)
-                    posPrev = posCur;
-
-                ImVec2 delta(posCur.x - posPrev.x, posCur.y - posPrev.y);
-                ImVec2 scroll(0.0f, 0.0f);
-
-                scroll.x = std::clamp(ImGui::GetScrollX() + delta.x, 0.0f, ImGui::GetScrollMaxX());
-                scroll.y = std::clamp(ImGui::GetScrollY() + delta.y, 0.0f, ImGui::GetScrollMaxY());
-
-                ImGui::SetScrollX(scroll.x);
-                ImGui::SetScrollY(scroll.y);
-
-                posPrev = posCur;
-                resetPos = false;
-            }
-            else
-            {
-                resetPos = true;
-            }
-        }
-        ImGui::EndChild();
-    }
-    else
-    {
-        const TextureMip_t* const mip = &txtrAsset->mipArray.at(selectedMip.index);
-        selectedMipTexture = CreateTextureFromMip(pakAsset, mip, s_PakToDxgiFormat[txtrAsset->imgFormat], selectedArrayIndex);
-    }
-
-    if (lastSelectedArrayIndex != selectedArrayIndex)
+    // If this is the first mip that we are rendering, or if the mip selection has changed, we need to (re)create the texture
+    if (!selectedMipTexture || lastSelectedArrayIndex != selectedArrayIndex)
     {
         lastSelectedArrayIndex = selectedArrayIndex;
 
@@ -727,7 +673,9 @@ void* PreviewTextureAsset(CAsset* const asset, const bool firstFrameForAsset)
         selectedMipTexture = CreateTextureFromMip(pakAsset, mip, s_PakToDxgiFormat[txtrAsset->imgFormat], selectedArrayIndex);
     }
 
-    return nullptr;
+    s_textureDrawData->previewTexture = selectedMipTexture;
+
+    return s_textureDrawData;
 }
 
 inline void NormalRecalc(const bool isNormal, CTexture* texture)

@@ -55,6 +55,14 @@ void LoadShaderSetAsset(CAssetContainer* const pak, CAsset* const asset)
 		shdsAsset = new ShaderSetAsset(hdr);
 		break;
 	}
+	case 15:
+	{
+		assertm(pakAsset->data()->headerStructSize == sizeof(ShaderSetAssetHeader_v15_t), "incorrect header");
+
+		ShaderSetAssetHeader_v15_t* hdr = reinterpret_cast<ShaderSetAssetHeader_v15_t*>(pakAsset->header());
+		shdsAsset = new ShaderSetAsset(hdr);
+		break;
+	}
 	default:
 	{
 		assertm(false, "Unknown ShaderSet asset version");

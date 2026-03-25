@@ -317,7 +317,7 @@ namespace ImGuiExt {
     {
         const std::string lblText = _labelPrefix(label, inputRelPosX);
 
-        ImGui::InputText(lblText.c_str(), const_cast<char*>(text), strlen(text), ImGuiInputTextFlags_ReadOnly);
+        ImGui::InputText(lblText.c_str(), const_cast<char*>(text), strlen(text)+1, ImGuiInputTextFlags_ReadOnly);
     }
 
     inline void ConstIntInputLeft(const char* label, const int val, int inputRelPosX = 170, ImGuiInputTextFlags flags = 0)
@@ -325,5 +325,14 @@ namespace ImGuiExt {
         const std::string lblText = _labelPrefix(label, inputRelPosX);
 
         ImGui::InputInt(label, const_cast<int*>(&val), 0, 0, ImGuiInputTextFlags_ReadOnly | flags);
+    }
+
+    inline void TextCentered(const std::string& text)
+    {
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 textWidth = ImGui::CalcTextSize(text.c_str());
+
+        ImGui::SetCursorPosX((avail.x - textWidth.x) * 0.5f);
+        ImGui::Text(text.c_str());
     }
 };

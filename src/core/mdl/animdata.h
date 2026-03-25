@@ -231,6 +231,8 @@ struct ModelAnim_t
 	inline const char* const pszName() const { return IsSeqDeclared() ? name + 1 : name; }
 
 	float fps;
+	inline const float Duration() const { return numframes / fps; };
+
 	int flags;
 
 	inline const bool IsOverriden() const { return flags & STUDIO_OVERRIDE; } // gets overwrote by external animation on load

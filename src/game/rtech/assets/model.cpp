@@ -1566,6 +1566,61 @@ static bool ExportPhysicsModelBVH(const ModelAsset* const modelAsset, std::files
     return true;
 }
 
+static bool ExportModelHitboxes(const ModelAsset* modelAsset, std::filesystem::path& exportPath)
+{
+    const ModelParsedData_t* parsedData = modelAsset->GetParsedData();
+
+    std::string objData;
+
+    for (auto& hitboxSet : parsedData->hitboxsets)
+    {
+        for (int i = 0; i < hitboxSet.numHitboxes; ++i)
+        {
+            const ModelHitbox_t& h = hitboxSet.hitboxes[i];
+
+            objData += std::format("o {}_{}_{}\n", hitboxSet.name, i, h.name);
+
+            const Vector* bbmin = h.bbmin;
+            const Vector* bbmax = h.bbmax;
+
+            // -8: x y z
+            // -7: X y z
+            // -6: x Y z
+            // -5: x y Z
+            // -4: X Y z
+            // -3: X y Z
+            // -2: x Y Z
+            // -1: X Y Z
+
+            objData += std::format(
+                "v {} {} {}\nv {} {} {}\nv {} {} {}\nv {} {} {}\nv {} {} {}\nv {} {} {}\nv {} {} {}\nv {} {} {}\n",
+                bbmin->x, bbmin->y, bbmin->z,
+                bbmax->x, bbmin->y, bbmin->z,
+                bbmin->x, bbmax->y, bbmin->z,
+                bbmin->x, bbmin->y, bbmax->z,
+                bbmax->x, bbmax->y, bbmin->z,
+                bbmax->x, bbmin->y, bbmax->z,
+                bbmin->x, bbmax->y, bbmax->z,
+                bbmax->x, bbmax->y, bbmax->z
+            );
+
+            objData += "f -8 -7 -4 -6\n"
+                "f -6 -4 -1 -2\n"
+                "f -7 -3 -1 -4\n"
+                "f -5 -8 -6 -2\n"
+                "f -7 -8 -5 -3\n"
+                "f -3 -5 -2 -1\n\n";
+        }
+    }
+
+    StreamIO hitboxesOut(exportPath.replace_extension(".hitboxes.obj"), eStreamIOMode::Write);
+
+    hitboxesOut.write(objData.c_str(), objData.length());
+    hitboxesOut.close();
+
+    return true;
+}
+
 static const char* const s_PathPrefixMDL = s_AssetTypePaths.find(AssetType_t::MDL_)->second;
 bool ExportModelAsset(CAsset* const asset, const int setting)
 {
@@ -1666,6 +1721,10 @@ bool ExportModelAsset(CAsset* const asset, const int setting)
                 return ExportPhysicsModelBVH<r5::mstudiocollmodel_v8_t, r5::mstudiocollheader_v12_t>(modelAsset, exportPath);
             else
                 return ExportPhysicsModelBVH<r5::mstudiocollmodel_v8_t, r5::mstudiocollheader_v8_t>(modelAsset, exportPath);
+        }
+        case eModelExportSetting::MODEL_HITBOXES:
+        {
+            return ExportModelHitboxes(modelAsset, exportPath);
         }
         default:
         {

@@ -120,6 +120,6 @@ static const char* s_CompressionLevelSetting[eCompressionLevel::CMPR_LVL_COUNT] 
 
 struct PreviewSettings_t
 {
-    float previewCullDistance; // currently can only be set on load, which is not ideal
+    float previewCullDistance;
     float previewMovementSpeed;
 };

@@ -1,4 +1,5 @@
 #pragma once
+#include <core/update/update.h>
 
 struct CUI_ItemflavCharacterSkin
 {
@@ -75,8 +76,12 @@ public:
 	bool settingsWindowVisible;
 	bool itemflavWindowVisible;
 	bool logWindowVisible;
+	bool sceneWindowHovered;
 
 	void* itemFlavorListAsset;
 
 	CUI_ItemflavWindowData itemflavData;
+
+	const char* newVersionType;
+	GitHubReleaseInfo_s newVersionReleaseInfo;
 };

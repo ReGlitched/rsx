@@ -364,6 +364,8 @@ CDXDrawData* CBSPData::ConstructPreviewData()
 	{
 		m_drawData = new CDXDrawData();
 
+		m_drawData->dataType = CDXDrawData::DrawDataType_e::MODEL;
+
 		//CreateOrUpdatePreviewStructuredBuffers();
 
 		m_drawData->pixelShader = g_dxHandler->GetShaderManager()->LoadShader("shaders/bsp_ps", eShaderType::Pixel);

@@ -21,7 +21,7 @@
 #define SWAP32(n) (((uint32_t)n & 0xff) << 24 | ((uint32_t)n & 0xff00) << 8 | ((uint32_t)n & 0xff0000) >> 8 | ((uint32_t)n >> 24))
 #define ISWAP32(n) n = SWAP32(n)
 
-inline const char* keepAfterLastSlashOrBackslash(const char* src)
+inline const char* GetStringAfterLastSlash(const char* src)
 {
 	const char* lastSlash = strrchr(src, '/');
 	const char* lastBackslash = strrchr(src, '\\');
@@ -87,6 +87,77 @@ FORCEINLINE const size_t strncpy_mem(char* dest, size_t destsz, const char* src,
 	dest[length] = '\0';
 
 	return length;
+}
+
+
+inline std::string EscapeString(const std::string& str)
+{
+    std::stringstream outStream;
+
+    for (int i = 0; i < str.length(); ++i)
+    {
+        unsigned char c = str.at(i);
+
+        // if this char is over ascii then it's a multibyte sequence
+        if (c > 0x7F)
+        {
+            // find the number of bytes to add to the stringstream
+            int numBytes = 0;
+
+            if (c <= 0xBF)
+                numBytes = 1;
+            else if (c >= 0xc2 && c <= 0xdf) // 0xC2 -> 0xDF - 2 byte sequence
+                numBytes = 2;
+            else if (c >= 0xe0 && c <= 0xef) // 0xE0 -> 0xEF - 3 byte sequence
+                numBytes = 3;
+            else if (c >= 0xf0 && c <= 0xf4) // 0xF0 -> 0xF4 - 4 byte sequence
+                numBytes = 4;
+
+            assert(numBytes != 0);
+
+            for (int j = 0; j < numBytes; ++j)
+            {
+                outStream << str.at(i + j);
+            }
+
+            // add numBytes-1 to the char index
+            // since one increment will already be handled by the for loop
+            i += numBytes - 1;
+            continue;
+        }
+
+        switch (c)
+        {
+        case '\0':
+            break;
+        case '\t':
+            outStream << "\\t";
+            break;
+        case '\n':
+            outStream << "\\n";
+            break;
+        case '\r':
+            outStream << "\\r";
+            break;
+        case '\"':
+            outStream << "\\\"";
+            break;
+        case '\\':
+            outStream << "\\\\";
+            break;
+        default:
+        {
+            if (!std::isprint(c))
+                outStream << std::hex << std::setfill('0') << std::setw(2) << "\\x" << (int)c;
+            else
+                outStream << c;
+
+            break;
+        }
+        }
+    }
+
+    return outStream.str();
 }
 
 struct Color4

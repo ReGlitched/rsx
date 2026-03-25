@@ -126,3 +126,9 @@
 //#define XB_XECRPYT
 //#define XB_XCOMPRESS
 #define SWITCH_SWIZZLE
+
+#if defined(BUILD_NOGUI)
+#define IS_NOGUI(...) (true)
+#else
+#define IS_NOGUI(cli) ((cli) && (cli)->HasParam("-nogui"))
+#endif

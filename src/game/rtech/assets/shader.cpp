@@ -507,7 +507,7 @@ void* PreviewShaderAsset(CAsset* const asset, const bool firstFrameForAsset)
 		inputFlagsStr += "]";
 
 		// yes i know the const_cast is bad, but the input is ReadOnly so it shouldn't be an issue
-		ImGui::InputTextMultiline("Shader Input Flags", const_cast<char*>(inputFlagsStr.c_str()), inputFlagsStr.length(), ImVec2(0, 800), ImGuiInputTextFlags_ReadOnly);
+		ImGui::InputTextMultiline("Shader Input Flags", const_cast<char*>(inputFlagsStr.c_str()), inputFlagsStr.length()+1, ImVec2(0, 800), ImGuiInputTextFlags_ReadOnly);
 	}
 
 

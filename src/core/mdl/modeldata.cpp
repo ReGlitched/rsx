@@ -439,7 +439,109 @@ void ParseModelHitboxData_v16(ModelParsedData_t* const parsedData)
 	}
 }
 
-void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const drawData, const uint64_t lod)
+void CreateBuffersForModelHitboxes(ModelParsedData_t* const parsedData, CDXDrawData* const drawData)
+{
+	CShader* vertexShader = g_dxHandler->GetShaderManager()->LoadShaderFromString("shaders/model_vs", s_PreviewVertexShader, eShaderType::Vertex);;
+	CShader* pixelShader = g_dxHandler->GetShaderManager()->LoadShaderFromString("shaders/model_ps", s_PreviewPixelShader, eShaderType::Pixel);
+
+	for (auto& hitboxSet : parsedData->hitboxsets)
+	{
+		for (int i = 0; i < hitboxSet.numHitboxes; ++i)
+		{
+			const ModelHitbox_t& h = hitboxSet.hitboxes[i];
+
+			Vector bonePos = parsedData->bones[h.bone].pos;
+			Vector bbmin = (*h.bbmin) + bonePos;
+			Vector bbmax = (*h.bbmax) + bonePos;
+
+			// -8: x y z
+			// -7: X y z
+			// -6: x Y z
+			// -5: x y Z
+			// -4: X Y z
+			// -3: X y Z
+			// -2: x Y Z
+			// -1: X Y Z
+
+			const std::vector<Vertex_t> vertices = {
+				{bbmin.x, bbmin.y, bbmin.z},
+				{bbmax.x, bbmin.y, bbmin.z},
+				{bbmin.x, bbmax.y, bbmin.z},
+				{bbmin.x, bbmin.y, bbmax.z},
+				{bbmax.x, bbmax.y, bbmin.z},
+				{bbmax.x, bbmin.y, bbmax.z},
+				{bbmin.x, bbmax.y, bbmax.z},
+				{bbmax.x, bbmax.y, bbmax.z},
+			};
+
+			const std::vector<uint16_t> indices = {
+				2, 4, 0,
+				0, 4, 1,
+				5, 3, 1,
+				1, 3, 0,
+				4, 7, 1,
+				1, 7, 5,
+				6, 7, 2,
+				2, 7, 4,
+				7, 6, 5,
+				5, 6, 3,
+				6, 2, 3,
+				3, 2, 0
+			};
+
+			DXMeshDrawData_t& meshDrawData = drawData->meshBuffers.emplace_back();
+
+			meshDrawData.visible = false;
+			meshDrawData.doFrustumCulling = false;
+			meshDrawData.wireframe = true;
+			meshDrawData.indexFormat = DXGI_FORMAT_R16_UINT;
+			meshDrawData.vertexShader = vertexShader->Get<ID3D11VertexShader>();
+			meshDrawData.pixelShader = pixelShader->Get<ID3D11PixelShader>();
+			meshDrawData.inputLayout = vertexShader->GetInputLayout();
+			meshDrawData.hasGameShaders = false;
+
+			if (!meshDrawData.vertexBuffer)
+			{
+				constexpr UINT vertStride = sizeof(Vertex_t);
+
+				D3D11_BUFFER_DESC desc = {};
+
+				desc.Usage = D3D11_USAGE_DYNAMIC;
+				desc.ByteWidth = static_cast<UINT>(vertStride * vertices.size());
+				desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+				desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+				desc.MiscFlags = 0;
+
+				D3D11_SUBRESOURCE_DATA srd{ vertices.data() };
+
+				if (FAILED(g_dxHandler->GetDevice()->CreateBuffer(&desc, &srd, &meshDrawData.vertexBuffer)))
+					return;
+
+				meshDrawData.vertexStride = vertStride;
+			}
+
+			if (!meshDrawData.indexBuffer)
+			{
+				D3D11_BUFFER_DESC desc = {};
+
+				desc.Usage = D3D11_USAGE_DYNAMIC;
+				desc.ByteWidth = static_cast<UINT>(indices.size() * sizeof(uint16_t));
+				desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+				desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+				desc.MiscFlags = 0;
+
+				D3D11_SUBRESOURCE_DATA srd = { indices.data()};
+				if (FAILED(g_dxHandler->GetDevice()->CreateBuffer(&desc, &srd, &meshDrawData.indexBuffer)))
+					return;
+
+				meshDrawData.numIndices = indices.size();
+			}
+
+		}
+	}
+}
+
+void CreateBuffersForModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const drawData, const uint64_t lod)
 {
 	// [rika]: eventually parse through models
 	for (size_t i = 0; i < parsedData->lods.at(lod).meshes.size(); ++i)
@@ -449,6 +551,7 @@ void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const 
 
 		meshDrawData->visible = true;
 		meshDrawData->doFrustumCulling = false;
+		meshDrawData->wireframe = false;
 
 		if (mesh.materialAsset)
 		{
@@ -464,11 +567,7 @@ void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const 
 
 		if (!meshDrawData->vertexBuffer)
 		{
-#if 0//defined(ADVANCED_MODEL_PREVIEW)
-			const UINT vertStride = mesh.vertCacheSize;
-#else
 			constexpr UINT vertStride = sizeof(Vertex_t);
-#endif
 
 			D3D11_BUFFER_DESC desc = {};
 
@@ -478,11 +577,7 @@ void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const 
 			desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 			desc.MiscFlags = 0;
 
-#if 0//defined(ADVANCED_MODEL_PREVIEW)
-			const void* vertexData = mesh.rawVertexData;
-#else
 			const void* vertexData = parsedVertexData->GetVertices();
-#endif
 
 			D3D11_SUBRESOURCE_DATA srd{ vertexData };
 
@@ -490,10 +585,6 @@ void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const 
 				return;
 
 			meshDrawData->vertexStride = vertStride;
-
-#if 0//defined(ADVANCED_MODEL_PREVIEW)
-			delete[] mesh.rawVertexData;
-#endif
 		}
 
 		if (!meshDrawData->indexBuffer)
@@ -511,6 +602,37 @@ void ParseModelDrawData(ModelParsedData_t* const parsedData, CDXDrawData* const 
 				return;
 
 			meshDrawData->numIndices = mesh.indexCount;
+		}
+
+		if (!meshDrawData->weightsBuffer)
+		{
+			VertexWeight_t* const weights = parsedVertexData->GetWeights();
+
+			const int64_t numWeights = parsedVertexData->GetWeightCount();
+
+			VertexWeight_ForShader_t* wfs = new VertexWeight_ForShader_t[numWeights];
+			for (int64_t j = 0; j < numWeights; ++j)
+				wfs[j] = weights[j];
+
+			if(CreateD3DBuffer(g_dxHandler->GetDevice(),
+				&meshDrawData->weightsBuffer, static_cast<UINT>(numWeights) * sizeof(VertexWeight_ForShader_t),
+				D3D11_USAGE_DYNAMIC, D3D11_BIND_SHADER_RESOURCE,
+				D3D11_CPU_ACCESS_WRITE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, sizeof(VertexWeight_ForShader_t), wfs
+			))
+			{
+				D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+				desc.Format = DXGI_FORMAT_UNKNOWN;
+				desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+				desc.Buffer.FirstElement = 0;
+				desc.Buffer.NumElements = static_cast<UINT>(numWeights);
+
+				HRESULT hr = g_dxHandler->GetDevice()->CreateShaderResourceView(meshDrawData->weightsBuffer, &desc, &meshDrawData->weightsSRV);
+
+				UNUSED(hr);
+				assert(SUCCEEDED(hr));
+			}
+
+			delete[] wfs;
 		}
 	}
 
@@ -551,16 +673,18 @@ void CMeshData::AddVertices(const Vertex_t* const vertices, const size_t vertexC
 	writer += IALIGN16(bufferSize);
 }
 
-void CMeshData::AddWeights(const VertexWeight_t* const weights, const size_t weightCount)
+void CMeshData::AddWeights(const VertexWeight_t* const weights, const size_t _weightCount)
 {
 	assertm(writer, "attempting to write data, but writer is not initialized.");
 
 	weightOffset = writer - reinterpret_cast<char*>(this);
 
-	const size_t bufferSize = weightCount * sizeof(VertexWeight_t);
+	const size_t bufferSize = _weightCount * sizeof(VertexWeight_t);
 	assertm((writer + bufferSize) - reinterpret_cast<char*>(this) < managedBufferSize, "data exceeded buffer size!!!");
 	if (weights)
 		memcpy(writer, weights, bufferSize);
+
+	this->weightCount = _weightCount;
 
 	writer += IALIGN16(bufferSize);
 }
@@ -999,14 +1123,14 @@ bool ExportModelCast(const ModelParsedData_t* const parsedData, std::filesystem:
 
 			if (!material.asset)
 			{
-				matlNode.SetProperty(0, cast::CastPropertyId::String, static_cast<int>(cast::CastPropsMaterial::Name), keepAfterLastSlashOrBackslash(materialData->name), 1u); // unsure why it does this but we're rolling with it!
+				matlNode.SetProperty(0, cast::CastPropertyId::String, static_cast<int>(cast::CastPropsMaterial::Name), GetStringAfterLastSlash(materialData->name), 1u); // unsure why it does this but we're rolling with it!
 				modelNode->AddChild(matlNode);
 				continue;
 			}
 
 			const MaterialAsset* const materialAsset = material.asset;
 
-			matlNode.SetProperty(0, cast::CastPropertyId::String, static_cast<int>(cast::CastPropsMaterial::Name), keepAfterLastSlashOrBackslash(materialAsset->name), 1u);
+			matlNode.SetProperty(0, cast::CastPropertyId::String, static_cast<int>(cast::CastPropsMaterial::Name), GetStringAfterLastSlash(materialAsset->name), 1u);
 
 			// [rika]: parse out our textures if we have bindings for them, don't if not
 			// [rika]: exit early if no textures
@@ -1107,7 +1231,7 @@ bool ExportModelCast(const ModelParsedData_t* const parsedData, std::filesystem:
 				std::unique_ptr<char[]> parsedVertexDataBuf = parsedData->meshVertexData.getIdx(meshData.meshVertexDataIndex);
 				const CMeshData* const parsedVertexData = reinterpret_cast<CMeshData*>(parsedVertexDataBuf.get());
 
-				std::string matl = nullptr != meshData.materialAsset ? keepAfterLastSlashOrBackslash(meshData.GetMaterialAsset()->name) : std::to_string(materialGuid);
+				std::string matl = nullptr != meshData.materialAsset ? GetStringAfterLastSlash(meshData.GetMaterialAsset()->name) : std::to_string(materialGuid);
 				std::string meshName = std::format("{}_{}", modelData.name, matl);
 				cast::CastNode meshNode(cast::CastId::Mesh, 1, RTech::StringToGuid(meshName.c_str())); // name
 
@@ -1291,7 +1415,7 @@ bool ExportModelSMD(const ModelParsedData_t* const parsedData, std::filesystem::
 				const char* material = materialData->GetName(true);
 				assertm(material, "material name should always be valid");
 
-				material = g_ExportSettings.exportModelMatsTruncated ? material : keepAfterLastSlashOrBackslash(material);
+				material = g_ExportSettings.exportModelMatsTruncated ? material : GetStringAfterLastSlash(material);
 
 				for (uint32_t vertexIdx = 0; vertexIdx < meshData.vertCount; vertexIdx++)
 				{
@@ -1729,10 +1853,14 @@ void* PreviewParsedData(ModelPreviewInfo_t* const info, ModelParsedData_t* const
 		g_currentPreviewDrawData.FreeDrawData();
 
 		CDXDrawData* const drawData = new CDXDrawData();
+
+		// this leaks mem?
 		drawData->meshBuffers.resize(parsedData->lods.at(info->selectedLODLevel).meshes.size());
 		drawData->modelName = assetName;
+		drawData->dataType = CDXDrawData::DrawDataType_e::MODEL;
 
-		ParseModelDrawData(parsedData, drawData, info->selectedLODLevel);
+		CreateBuffersForModelDrawData(parsedData, drawData, info->selectedLODLevel);
+		CreateBuffersForModelHitboxes(parsedData, drawData);
 
 		g_currentPreviewDrawData.UpdateAssetInfo(drawData, assetGUID, info->selectedLODLevel);
 	}
@@ -1753,9 +1881,7 @@ void* PreviewParsedData(ModelPreviewInfo_t* const info, ModelParsedData_t* const
 	ImGui::Text("Local Sequences: %i", parsedData->NumLocalSeq());
 
 	if (info->minLODIndex != info->maxLODIndex)
-	{
 		ImGui::SliderScalar("LOD Level", ImGuiDataType_U8, &info->selectedLODLevel, &info->minLODIndex, &info->maxLODIndex);
-	}
 
 	if (parsedData->skins.size())
 	{
@@ -1788,7 +1914,6 @@ void* PreviewParsedData(ModelPreviewInfo_t* const info, ModelParsedData_t* const
 		}
 	}
 
-	g_ExportSettings.previewedSkinIndex = static_cast<int>(info->selectedSkinIndex);
 
 	if (parsedData->bodyParts.size())
 	{
@@ -1823,6 +1948,14 @@ void* PreviewParsedData(ModelPreviewInfo_t* const info, ModelParsedData_t* const
 		// If the selected bodypart index is out of range, reset it to 0 to prevent an exception
 		if (info->selectedBodypartIndex >= parsedData->bodyParts.size())
 			info->selectedBodypartIndex = 0;
+
+		if (info->selectedSkinIndex >= parsedData->skins.size())
+			info->selectedSkinIndex = 0;
+
+		if (info->selectedLODLevel >= parsedData->lods.size())
+			info->selectedLODLevel = 0;
+
+		g_ExportSettings.previewedSkinIndex = static_cast<int>(info->selectedSkinIndex);
 
 		if (parsedData->bodyParts.at(info->selectedBodypartIndex).numModels > 1)
 		{
@@ -1863,24 +1996,25 @@ void* PreviewParsedData(ModelPreviewInfo_t* const info, ModelParsedData_t* const
 #if defined(ADVANCED_MODEL_PREVIEW)
 	const CShader* const vertexShader = g_dxHandler->GetShaderManager()->LoadShader("C:/p4/rtech_utils_imgui/src/shaders/amp_vs", eShaderType::Vertex);
 #else
-	const CShader* const vertexShader = g_dxHandler->GetShaderManager()->LoadShader("shaders/model_vs", eShaderType::Vertex);
+	const CShader* const vertexShader = g_dxHandler->GetShaderManager()->LoadShaderFromString("shaders/model_vs", s_PreviewVertexShader, eShaderType::Vertex);
 #endif
-	const CShader* const pixelShader = g_dxHandler->GetShaderManager()->LoadShader("shaders/model_ps", eShaderType::Pixel);
+	const CShader* const pixelShader = g_dxHandler->GetShaderManager()->LoadShaderFromString("shaders/model_ps", s_PreviewPixelShader, eShaderType::Pixel);
 
-	// [rika]: our currently selected skin
 	const ModelSkinData_t& skinData = parsedData->skins.at(info->selectedSkinIndex);
 	for (size_t i = 0; i < lodData.meshes.size(); ++i)
 	{
 		const ModelMeshData_t& mesh = lodData.meshes.at(i);
 		DXMeshDrawData_t* const meshDrawData = &drawData->meshBuffers[i];
 
-		meshDrawData->indexFormat = DXGI_FORMAT_R16_UINT;
+		meshDrawData->indexFormat = DXGI_FORMAT_R16_UINT; // uint16_t
+		meshDrawData->wireframe = false;
 
-		// If this body part is disabled, don't draw the mesh.
+		// If this mesh belongs to a bodypart that is not selected, we should set it to be invisible
 		drawData->meshBuffers[i].visible = parsedData->bodyParts[mesh.bodyPartIndex].IsPreviewEnabled();
 
 		const ModelBodyPart_t& bodypart = parsedData->bodyParts[mesh.bodyPartIndex];
 		const ModelModelData_t& model = lodData.models.at(bodypart.modelIndex + info->bodygroupModelSelected.at(mesh.bodyPartIndex));
+		
 		if (i >= model.meshIndex && i < model.meshIndex + model.meshCount)
 			drawData->meshBuffers[i].visible = true;
 		else
@@ -1929,8 +2063,18 @@ void* PreviewParsedData(ModelPreviewInfo_t* const info, ModelParsedData_t* const
 				if (texEntry.asset)
 				{
 					TextureAsset* txtr = reinterpret_cast<TextureAsset*>(texEntry.asset->extraData());
-					const std::shared_ptr<CTexture> highestTextureMip = CreateTextureFromMip(texEntry.asset, &txtr->mipArray[txtr->mipArray.size() - 1], s_PakToDxgiFormat[txtr->imgFormat]);
-					meshDrawData->textures.push_back({ texEntry.index, highestTextureMip });
+
+					for (auto& mip : txtr->mipArray | std::views::reverse)
+					{
+						// Find the highest mip in the texture's mip array that is loaded
+						if (mip.isLoaded)
+						{
+							const std::shared_ptr<CTexture> highestTextureMip = CreateTextureFromMip(texEntry.asset, &mip, s_PakToDxgiFormat[txtr->imgFormat]);
+							meshDrawData->textures.push_back({ texEntry.index, highestTextureMip });
+
+							break;
+						}
+					}
 				}
 			}
 		}
@@ -1961,6 +2105,7 @@ void PreviewAnimDesc(const ModelAnim_t* const animdesc, const int index)
 
 		ImGui::Text("Frame Rate: %f", animdesc->fps);
 		ImGui::Text("Frame Count: %i", animdesc->numframes);
+		ImGui::Text("Duration: %.3f seconds", animdesc->Duration());
 
 		ImGui::TreePop();
 	}

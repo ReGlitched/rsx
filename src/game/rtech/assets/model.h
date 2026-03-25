@@ -433,6 +433,7 @@ public:
 	inline const studiohdr_generic_t& StudioHdr() const { return parsedData.studiohdr; }
 	inline const studiohdr_generic_t* const pStudioHdr() const { return &parsedData.studiohdr; }
 	inline ModelParsedData_t* const GetParsedData() { return &parsedData; }
+	inline const ModelParsedData_t* const GetParsedData() const { return &parsedData; }
 	inline const std::vector<ModelBone_t>* const GetRig() const { return &parsedData.bones; } // slerp them bones
 
 	// get loose files from vertDataPermanent

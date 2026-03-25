@@ -69,6 +69,9 @@ struct DXMeshDrawData_t
     ID3D11Buffer* vertexBuffer;
     ID3D11Buffer* indexBuffer;
 
+    ID3D11Buffer* weightsBuffer;
+    ID3D11ShaderResourceView* weightsSRV;
+
     ID3D11Buffer* uberStaticBuf;
     ID3D11Buffer* uberDynamicBuf;
 
@@ -214,6 +217,13 @@ static_assert(sizeof(CBufModelInstance) == 208);
 class CDXDrawData
 {
 public:
+
+    enum DrawDataType_e
+    {
+        MODEL,
+        TEXTURE,
+    };
+
     CDXDrawData() = default;
 
     ~CDXDrawData()
@@ -226,6 +236,7 @@ public:
         {
             DX_RELEASE_PTR(meshBuffer.vertexBuffer);
             DX_RELEASE_PTR(meshBuffer.indexBuffer);
+            DX_RELEASE_PTR(meshBuffer.weightsBuffer);
         }
     }
 
@@ -236,6 +247,8 @@ public:
 
     ID3D11Buffer* boneMatrixBuffer;
     ID3D11ShaderResourceView* boneMatrixSRV;
+
+    std::shared_ptr<CTexture> previewTexture;
 
     ID3D11InputLayout* inputLayout;
 
@@ -248,6 +261,8 @@ public:
     char* modelName;
 
     Vector position;
+
+    DrawDataType_e dataType;
 
     void SetPSResource(uint8_t bindPoint, ID3D11ShaderResourceView* srv)
     {
@@ -265,13 +280,14 @@ public:
 class CDXCamera
 {
 public:
-    CDXCamera() = default;
+    CDXCamera() : distanceToPivot(25.f) {};
 
     void Move(float dt);
 
     void AddRotation(float yaw, float pitch, float roll);
 
     XMMATRIX GetViewMatrix();
+    //float* GetViewMatrixFloat();
 
     void CommitCameraDataBufferUpdates();
 
@@ -286,9 +302,13 @@ public:
     Vector position;
     Vector rotation; // pitch yaw roll
 
+    float distanceToPivot;
+
     ID3D11Buffer* bufCommonPerCamera;
 
     CBufCommonPerCamera commonCameraData;
+
+    XMMATRIX viewMatrix;
 };
 
 class CDXParentHandler
@@ -303,6 +323,7 @@ public:
 	~CDXParentHandler() { CleanupD3D(); };
 
 	bool SetupDeviceD3D();
+    void UpdateProjectionMatrix();
 	void CleanupD3D();
     void CleanupForPreviewResize()
     {
@@ -358,6 +379,7 @@ public:
     };
 
     inline const XMMATRIX& GetProjMatrix() { return m_projectionMatrix; };
+    inline const float* GetProjMatrixFloat() const { return (float*)&m_projectionMatrix; };
 
     inline CDXShaderManager* GetShaderManager() const { return m_pShaderManager; };
 
@@ -414,6 +436,9 @@ private:
     MonitorAdapter_t* m_pMonitors;
     uint32_t m_numMonitors;
     uint32_t m_activeMonitor;
+
+    uint16_t renderWidth;
+    uint16_t renderHeight;
 
     XMMATRIX m_projectionMatrix;
 

@@ -362,21 +362,41 @@ void CDXCamera::AddRotation(float yaw, float pitch, float roll)
     if (rotation.y < (-XM_PI))
         rotation.y += 2.f * XM_PI;
 
-    rotation.x = std::clamp(rotation.x + pitch, -DEG2RAD(90), DEG2RAD(90));
+    rotation.x += pitch;
+
+    // when this is clamped to 90 degrees, the view flips when it hits 90
+    // if it's 89.5 the bug doesn't happen. i dont know how to fix it right now so i'm just going to leave it like this for now
+    rotation.x = std::clamp(rotation.x + pitch, -DEG2RAD(89.5f), DEG2RAD(89.5f));
 
     rotation.z += roll;
 }
 
+// first-person
+//XMMATRIX CDXCamera::GetViewMatrix()
+//{
+//    const XMMATRIX rotMatrix = XMMatrixRotationRollPitchYaw(rotation.x, rotation.y, rotation.z);
+//
+//    target = XMVector3TransformCoord(XMVectorSet(0, 0, 1, 0), rotMatrix);
+//    up = XMVector3TransformCoord(XMVectorSet(0, 1, 0, 0), rotMatrix);
+//
+//    target = position.AsXMVector() + target;
+//
+//    return XMMatrixLookAtLH(position.AsXMVector(), target, up);
+//}
+
 XMMATRIX CDXCamera::GetViewMatrix()
 {
-    const XMMATRIX rotMatrix = XMMatrixRotationRollPitchYaw(rotation.x, rotation.y, rotation.z);
+    Vector ttarget = { 0,0,0 };
+    XMVECTOR cameraPos = XMVectorSet(
+        ttarget.x + distanceToPivot * cosf(rotation.x) * sinf(rotation.y),
+        ttarget.y + distanceToPivot * sinf(rotation.x),
+        ttarget.z + distanceToPivot * cosf(rotation.x) * cosf(rotation.y),
+        0.0f
+    );
+    XMVECTOR focusPos = XMVectorSet(ttarget.x, ttarget.y, ttarget.z, 0.0f);
+    XMVECTOR upDir = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f); // Constant up
 
-    target = XMVector3TransformCoord(XMVectorSet(0, 0, 1, 0), rotMatrix);
-    up = XMVector3TransformCoord(XMVectorSet(0, 1, 0, 0), rotMatrix);
-
-    target = position.AsXMVector() + target;
-
-    return XMMatrixLookAtLH(position.AsXMVector(), target, up);
+    return XMMatrixLookAtLH(cameraPos, focusPos, upDir);
 }
 
 bool CDXParentHandler::SetupAdapters()
@@ -681,6 +701,9 @@ bool CDXParentHandler::CreateViewForSceneWindow(const uint16_t w, const uint16_t
         return false;
     }
 
+    this->renderWidth = w;
+    this->renderHeight = h;
+
     D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
     srvDesc.Format = textureDesc.Format;
     srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
@@ -706,9 +729,14 @@ bool CDXParentHandler::CreateViewForSceneWindow(const uint16_t w, const uint16_t
 
     this->CreateDepthBuffer(m_previewState.frameBuffer, &m_previewState.previewDepthBuffer, &m_previewState.previewDSV);
     
-    m_projectionMatrix = XMMatrixPerspectiveFovLH(0.25f * XM_PI, static_cast<float>(w) / h, 0.1f, g_PreviewSettings.previewCullDistance);
+    UpdateProjectionMatrix();
 
     return true;
+}
+
+void CDXParentHandler::UpdateProjectionMatrix()
+{
+    m_projectionMatrix = XMMatrixPerspectiveFovLH(0.25f * XM_PI, static_cast<float>(renderWidth) / renderHeight, 0.1f, g_PreviewSettings.previewCullDistance);
 }
 
 bool CDXParentHandler::CreateDepthBuffer(ID3D11Texture2D* const frameBuffer, ID3D11Texture2D** depthBuffer, ID3D11DepthStencilView** depthStencilView)
@@ -766,6 +794,8 @@ bool CDXParentHandler::CreateMisc()
 
     if (!GenerateTexture2D(UINT32_MAX, sizeof(uint16_t), DXGI_FORMAT_R16_TYPELESS, 2048, 2048, 1, 0, false, &m_staticShadowTexture, &m_staticShadowTextureSRV))
         return false;
+
+    this->GetScene().previewGrid.CreateBuffers(m_pDevice, m_pShaderManager);
 
     // todo: use an actual cubemap
     //DirectX::TexMetadata meta;

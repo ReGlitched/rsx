@@ -29,6 +29,7 @@
     <ClInclude Include="core\render\dx.h" />
     <ClInclude Include="core\render\dxscene.h" />
     <ClInclude Include="core\render\dxshader.h" />
+    <ClInclude Include="core\render\preview\grid.h" />
     <ClInclude Include="core\render\preview\lighting.h" />
     <ClInclude Include="core\render\preview\preview.h" />
     <ClInclude Include="core\render\uistate.h" />
@@ -50,6 +51,7 @@
     <ClInclude Include="core\mdl\rmax.h" />
     <ClInclude Include="core\mdl\stringtable.h" />
     <ClInclude Include="core\render.h" />
+    <ClInclude Include="core\render\ui\styles.h" />
     <ClInclude Include="core\shaderexp\multishader.h" />
     <ClInclude Include="core\splash.h" />
     <ClInclude Include="core\update\update.h" />
@@ -77,6 +79,7 @@
     <ClInclude Include="game\rtech\assets\animseq.h" />
     <ClInclude Include="game\rtech\assets\animseq_data.h" />
     <ClInclude Include="game\rtech\assets\anim_recording.h" />
+    <ClInclude Include="game\rtech\assets\cube.h" />
     <ClInclude Include="game\rtech\assets\datatable.h" />
     <ClInclude Include="game\rtech\assets\effect.h" />
     <ClInclude Include="game\rtech\assets\impact.h" />
@@ -144,6 +147,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release_NoGui|x64'">true</ExcludedFromBuild>
     </ClInclude>
     <ClInclude Include="thirdparty\imgui\misc\imgui_utility.h" />
+    <ClInclude Include="thirdparty\imgui\misc\imoguizmo.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="core\cache\cachedb.cpp" />
@@ -156,6 +160,8 @@
     <ClCompile Include="core\mdl\modeldata_qc.cpp" />
     <ClCompile Include="core\mdl\qc.cpp" />
     <ClCompile Include="core\mdl\smd.cpp" />
+    <ClCompile Include="core\preview\grid.cpp" />
+    <ClCompile Include="core\preview\texpreview.cpp" />
     <ClCompile Include="core\render\dx.cpp" />
     <ClCompile Include="core\render\dxscene.cpp" />
     <ClCompile Include="core\render\dxshader.cpp" />
@@ -175,6 +181,7 @@
     <ClCompile Include="core\mdl\stringtable.cpp" />
     <ClCompile Include="core\render.cpp" />
     <ClCompile Include="core\render\dxutils.cpp" />
+    <ClCompile Include="core\render\preview\mdlpreview.cpp" />
     <ClCompile Include="core\render\preview\preview.cpp" />
     <ClCompile Include="core\render\ui\itemflav_window.cpp" />
     <ClCompile Include="core\render\ui\log_window.cpp" />
@@ -200,6 +207,7 @@
     <ClCompile Include="game\rtech\assets\animseq.cpp" />
     <ClCompile Include="game\rtech\assets\animseq_data.cpp" />
     <ClCompile Include="game\rtech\assets\anim_recording.cpp" />
+    <ClCompile Include="game\rtech\assets\cube.cpp" />
     <ClCompile Include="game\rtech\assets\datatable.cpp" />
     <ClCompile Include="game\rtech\assets\effect.cpp" />
     <ClCompile Include="game\rtech\assets\impact.cpp" />

@@ -3,7 +3,8 @@ struct VS_Input
     float3 position : POSITION;
     uint normal : NORMAL;
     uint color : COLOR;
-    float2 uv : TEXCOORD;    
+    float2 uv : TEXCOORD;
+    uint weights : BLENDWEIGHT;
 };
 struct VS_Output
 {
@@ -21,6 +22,15 @@ cbuffer VS_TransformConstants : register(b0)
     float4x4 projectionMatrix;
 };
 
+struct VertexWeight_t
+{
+    float weight;
+    int bone;
+};
+
+StructuredBuffer<float3x4> g_boneMatrix : register(t60);
+StructuredBuffer<VertexWeight_t> g_weights : register(t61);
+
 VS_Output vs_main(VS_Input input)
 {
     VS_Output output;
@@ -33,7 +43,7 @@ VS_Output vs_main(VS_Input input)
     // float3 pos = input.position.xzy;
     
     // either have to use xzy or -x y z to get accurate uvs
-    float3 pos = float3(-input.position.x, input.position.y, input.position.z);
+    float3 pos = input.position.xzy;
 
     output.position = mul(float4(pos, 1.f), modelMatrix);
     output.position = mul(output.position, viewMatrix);
@@ -43,6 +53,7 @@ VS_Output vs_main(VS_Input input)
 
     //output.color = input.color;
     
+    // this is just wrong
     output.color = float4((input.color & 0xff) / 255.f, ((input.color << 8) & 0xff) / 255.f, ((input.color << 16) & 0xff) / 255.f, ((input.color << 24) & 0xff) / 255.f);
 
     // todo: check if normal needs to be modified in any way like the position

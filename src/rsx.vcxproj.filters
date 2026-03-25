@@ -444,6 +444,18 @@
     <ClInclude Include="core\version.h">
       <Filter>core</Filter>
     </ClInclude>
+    <ClInclude Include="core\render\preview\grid.h">
+      <Filter>core\render\preview</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\imgui\misc\imoguizmo.hpp">
+      <Filter>thirdparty\imgui\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="game\rtech\assets\cube.h">
+      <Filter>game\rtech\assets</Filter>
+    </ClInclude>
+    <ClInclude Include="core\render\ui\styles.h">
+      <Filter>core\render\ui</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -754,6 +766,18 @@
     </ClCompile>
     <ClCompile Include="core\update\update.cpp">
       <Filter>core\update</Filter>
+    </ClCompile>
+    <ClCompile Include="core\preview\grid.cpp">
+      <Filter>core\render\preview</Filter>
+    </ClCompile>
+    <ClCompile Include="game\rtech\assets\cube.cpp">
+      <Filter>game\rtech\assets</Filter>
+    </ClCompile>
+    <ClCompile Include="core\preview\texpreview.cpp">
+      <Filter>core\render\preview</Filter>
+    </ClCompile>
+    <ClCompile Include="core\render\preview\mdlpreview.cpp">
+      <Filter>core\render\preview</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

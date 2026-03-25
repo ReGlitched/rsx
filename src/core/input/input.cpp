@@ -4,6 +4,7 @@
 
 #include <hidusage.h>
 #include <imgui.h>
+#define LODWORD(x)  (*((uint32_t*)&(x)))
 
 extern CDXParentHandler* g_dxHandler;
 
@@ -28,8 +29,8 @@ LPARAM CInput::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	case WM_INPUT:
 	{
 		// if no mouse capture, break early so we don't have any expensive allocation or retrieval
-		if (!mouseCaptured)
-			break;
+		//if (!mouseCaptured)
+		//	break;
 
 		// get the size of the buffer we need
 		UINT size = sizeof(RAWINPUT);
@@ -90,19 +91,20 @@ void CInput::Frame(float dt)
 {
 	//UNUSED(dt);
 
-	g_dxHandler->GetCamera()->AddRotation(mousedx * 0.5f * dt, mousedy * 0.5f * dt, 0);
+	if(applyMouseInput)
+		g_dxHandler->GetCamera()->AddRotation(mousedx * 0.5f * dt, mousedy * 0.5f * dt, 0);
 
-	if (this->mouseCaptured)
-	{
-		if (GetActiveWindow() != NULL)
-		{
-			RECT rect{};
-			GetWindowRect(g_dxHandler->GetWindowHandle(), &rect);
-			int cx = (rect.left + rect.right) / 2;
-			int cy = (rect.bottom + rect.top) / 2;
-			SetCursorPos(cx, cy);
-		}
-	}
+	//if (this->mouseCaptured)
+	//{
+	//	if (GetActiveWindow() != NULL)
+	//	{
+	//		RECT rect{};
+	//		GetWindowRect(g_dxHandler->GetWindowHandle(), &rect);
+	//		int cx = (rect.left + rect.right) / 2;
+	//		int cy = (rect.bottom + rect.top) / 2;
+	//		SetCursorPos(cx, cy);
+	//	}
+	//}
 
 	mousedx = 0;
 	mousedy = 0;
@@ -128,7 +130,7 @@ void CInput::OnMouseStateChanged(CInput::MouseButton_t button, bool state)
 		return;
 
 	// Only allow a mouse button to be released when ImGui has focus. this may cause more problems than it solves but meh
-	if (state && ImGui::GetIO().WantCaptureMouse)
+	if (!applyMouseInput)
 		return;
 
 	if (button == MouseButton_t::RIGHT && state == true)
@@ -136,9 +138,9 @@ void CInput::OnMouseStateChanged(CInput::MouseButton_t button, bool state)
 		this->SetCursorVisible(mouseCaptured);
 
 		if (mouseCaptured)
-			ImGui::GetIO().ConfigFlags &= ~(ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoKeyboard);
+			ImGui::GetIO().ConfigFlags &= ~(ImGuiConfigFlags_NoKeyboard);
 		else
-			ImGui::GetIO().ConfigFlags |= (ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoKeyboard);
+			ImGui::GetIO().ConfigFlags |= (ImGuiConfigFlags_NoKeyboard);
 
 		mouseCaptured = !mouseCaptured;
 	}

@@ -440,7 +440,7 @@ void LoadSourceModelAsset(CAssetContainer* container, CAsset* asset)
     srcMdlAsset->SetParsedData(parsedData);
     srcMdlAsset->SetLooseData(looseData);
 
-    srcMdlSource->SetFileName(keepAfterLastSlashOrBackslash(srcMdlAsset->GetName()));
+    srcMdlSource->SetFileName(GetStringAfterLastSlash(srcMdlAsset->GetName()));
 
     srcMdlAsset->FixupSkinData();
 }

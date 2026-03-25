@@ -183,7 +183,7 @@ void QC_ParseStudioHeader(qc::QCFile* const qc, const ModelParsedData_t* const p
 			assertm(materialFullPaths, "material path array was not allocated");
 
 			materialFullPaths[i] = materials[i];
-			materials[i] = keepAfterLastSlashOrBackslash(materials[i]);
+			materials[i] = GetStringAfterLastSlash(materials[i]);
 		}
 
 		if (pStudioHdr->numSkinFamilies > 1)
@@ -1120,7 +1120,7 @@ void QC_ParseStudioSequence(qc::QCFile* const file, const ModelParsedData_t* con
 	const ModelSeq_t* const seq = info->seq;
 
 	char tmpName[MAX_PATH]{};
-	strncpy_mem(tmpName, MAX_PATH, keepAfterLastSlashOrBackslash(seq->szlabel), MAX_PATH);
+	strncpy_mem(tmpName, MAX_PATH, GetStringAfterLastSlash(seq->szlabel), MAX_PATH);
 	removeExtension(tmpName);
 
 	const char* const label = file->WriteString(tmpName);
@@ -1277,7 +1277,7 @@ void QC_ParseStudioSequence(qc::QCFile* const file, const ModelParsedData_t* con
 					continue;
 				}
 
-				strncpy_mem(tmpName, MAX_PATH, keepAfterLastSlashOrBackslash(animSeq->seqdesc.szlabel), MAX_PATH);
+				strncpy_mem(tmpName, MAX_PATH, GetStringAfterLastSlash(animSeq->seqdesc.szlabel), MAX_PATH);
 				removeExtension(tmpName);
 
 
