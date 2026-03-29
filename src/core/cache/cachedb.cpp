@@ -51,9 +51,8 @@ bool CCacheDBManager::SaveToFile(const std::string& path)
 
 	uint32_t stringOffset = 1u; // skipping the null terminator
 	strings += stringOffset;
-	for (const auto& it : m_cacheEntries)
+	for (const auto& [guid, entry] : m_cacheEntries)
 	{
-		const CCacheEntry& entry = it.second;
 		mappings->guid = entry.guid;
 
 		// write the asset name
@@ -159,7 +158,6 @@ bool CCacheDBManager::LoadFromFile(const std::string& path)
 
 		AddInternal(entry);
 	}
-
 
 	delete[] fileData;
 	cacheFile.close();
