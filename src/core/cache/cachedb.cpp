@@ -43,9 +43,10 @@ bool CCacheDBManager::SaveToFile(const std::string& path)
 	const uint32_t numMappings = static_cast<uint32_t>(m_cacheEntries.size());
 
 	const size_t fileSize = sizeof(CacheDBHeader_t) + (numMappings * sizeof(CacheHashMapping_t)) + stringBufSize;
-	char* const fileBuf = new char[fileSize]{};
 
-	CacheDBHeader_t* const hdr = reinterpret_cast<CacheDBHeader_t* const>(fileBuf);
+	std::shared_ptr<char> fileBuf = std::make_shared<char>(fileSize);
+
+	CacheDBHeader_t* const hdr = reinterpret_cast<CacheDBHeader_t* const>(fileBuf.get());
 	CacheHashMapping_t* mappings = reinterpret_cast<CacheHashMapping_t*>(&hdr[1]);
 	char* strings = reinterpret_cast<char*>(mappings + numMappings);
 
@@ -87,10 +88,8 @@ bool CCacheDBManager::SaveToFile(const std::string& path)
 	FILE* file = FileFromHandle(fileHandle, eStreamIOMode::Write);
 	StreamIO cacheFile(file, eStreamIOMode::Write);
 
-	cacheFile.write(fileBuf, fileSize);
+	cacheFile.write(fileBuf.get(), fileSize);
 	cacheFile.close(); // closes file handle
-
-	FreeAllocArray(fileBuf);
 
 	return true;
 }
@@ -109,10 +108,10 @@ bool CCacheDBManager::LoadFromFile(const std::string& path)
 
 	const uint64_t cacheFileSize = cacheFile.size();
 
-	const char* fileData = new char[cacheFileSize];
-	cacheFile.read(const_cast<char*>(fileData), cacheFileSize);
+	std::shared_ptr<char> fileData = std::make_shared<char>(cacheFileSize);
+	cacheFile.read(const_cast<char*>(fileData.get()), cacheFileSize);
 
-	const CacheDBHeader_t* header = reinterpret_cast<const CacheDBHeader_t*>(fileData);
+	const CacheDBHeader_t* header = reinterpret_cast<const CacheDBHeader_t*>(fileData.get());
 
 	switch (header->fileVersion)
 	{
@@ -125,7 +124,7 @@ bool CCacheDBManager::LoadFromFile(const std::string& path)
 		Log("CACHE: CacheDB file was old version: \"%s\". Upgrading file...\n", path.c_str());
 
 		fileData = UpgradeLegacyFile_V1(path, fileData, cacheFileSize);
-		header = reinterpret_cast<const CacheDBHeader_t*>(fileData);
+		header = reinterpret_cast<const CacheDBHeader_t*>(fileData.get());
 
 		break;
 	}
@@ -159,7 +158,6 @@ bool CCacheDBManager::LoadFromFile(const std::string& path)
 		AddInternal(entry);
 	}
 
-	delete[] fileData;
 	cacheFile.close();
 
 	return true;
@@ -231,7 +229,7 @@ const uint32_t CCacheDBManager::ParseCRCFromFile(const std::string& path) const
 	return out;
 }
 
-char* CCacheDBManager::UpgradeLegacyFile_V1(const std::string& path, const char* const fileBuf, const size_t fileBufSize) const
+std::shared_ptr<char> CCacheDBManager::UpgradeLegacyFile_V1(const std::string& path, std::shared_ptr<char> fileBuf, const size_t fileBufSize) const
 {
 	assertm(fileBufSize, "invalid buffer size");
 
@@ -240,23 +238,21 @@ char* CCacheDBManager::UpgradeLegacyFile_V1(const std::string& path, const char*
 	constexpr size_t sizeDifference = newHeaderSize - oldHeaderSize;
 
 	const size_t bufSize = fileBufSize + sizeDifference;
-	char* buf = new char[bufSize]{};
+	std::shared_ptr<char> buf = std::make_shared<char>(bufSize);
 
-	CacheDBHeader_t* const newHdr = reinterpret_cast<CacheDBHeader_t* const>(buf);
-	const CacheDBHeader_v1_t* const oldHdr = reinterpret_cast<const CacheDBHeader_v1_t* const>(fileBuf);
+	CacheDBHeader_t* const newHdr = reinterpret_cast<CacheDBHeader_t* const>(buf.get());
+	const CacheDBHeader_v1_t* const oldHdr = reinterpret_cast<const CacheDBHeader_v1_t* const>(fileBuf.get());
 
-	memcpy_s(buf + newHeaderSize, bufSize - newHeaderSize, fileBuf + oldHeaderSize, fileBufSize - oldHeaderSize);
+	memcpy_s(buf.get() + newHeaderSize, bufSize - newHeaderSize, fileBuf.get() + oldHeaderSize, fileBufSize - oldHeaderSize);
 
 	newHdr->fileVersion = CACHE_DB_FILE_VERSION;
-	newHdr->fileCRC = crc32::byteLevel(reinterpret_cast<const uint8_t*>(buf) + newHeaderSize, bufSize - newHeaderSize);
+	newHdr->fileCRC = crc32::byteLevel(reinterpret_cast<const uint8_t*>(buf.get()) + newHeaderSize, bufSize - newHeaderSize);
 	newHdr->numMappings = oldHdr->numMappings;
 	newHdr->stringTableOffset = oldHdr->stringTableOffset + sizeDifference;
 
-	FreeAllocArray(fileBuf);
-
 	// [rika]: write the new cache file
 	StreamIO cacheFile(path, eStreamIOMode::Write);
-	cacheFile.write(buf, bufSize);
+	cacheFile.write(buf.get(), bufSize);
 	cacheFile.close();
 
 	return buf;

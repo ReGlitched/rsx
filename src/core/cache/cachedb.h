@@ -93,7 +93,7 @@ private:
 
 	const uint32_t LoadCRCFromFile(const std::string& path) const;
 	const uint32_t ParseCRCFromFile(const std::string& path) const;
-	char* UpgradeLegacyFile_V1(const std::string& path, const char* const fileBuf, const size_t fileBufSize) const;
+	std::shared_ptr<char> UpgradeLegacyFile_V1(const std::string& path, std::shared_ptr<char> fileBuf, const size_t fileBufSize) const;
 
 private:
 	std::unordered_map<uint64_t, CCacheEntry> m_cacheEntries;
