@@ -136,7 +136,7 @@ void HandleLoadFromCommandLine(const CCommandLine* const cli)
 {
     std::vector<std::string> filePaths;
 
-    for (int i = cli->GetFirstNonFlagArgIdx(); i < cli->GetArgC(); ++i) // we skip 0 since its selfpath
+    for (uint32_t i = cli->GetFirstNonFlagArgIdx(); i < cli->GetArgC(); ++i) // we skip 0 since its selfpath
     {
         std::filesystem::path path = std::filesystem::path(cli->GetParamValue(i));
 

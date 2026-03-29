@@ -6,7 +6,7 @@
 
 // v1: intial revision
 // v2: adds crc to header
-constexpr int CACHE_DB_FILE_VERSION = 2;
+constexpr uint32_t CACHE_DB_FILE_VERSION = 2;
 constexpr size_t maxCacheFileSize = 1024 * 1024 * 32;
 
 #pragma pack(push, 1)

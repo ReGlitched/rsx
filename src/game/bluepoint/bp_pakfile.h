@@ -124,12 +124,12 @@ public:
     void SetFileName(const char* fileName) { strncpy_s(m_fileName, 64, fileName, strnlen_s(fileName, 64)); }
     const char* const GetFileName() const { return m_fileName; }
 
-    inline const int Version() const { return m_version; }
-    inline const int FileCount() const { return m_fileCount; }
+    inline const int32_t Version() const { return m_version; }
+    inline const int32_t FileCount() const { return m_fileCount; }
     inline void* const Files() { return m_files; }
     inline char* const FileBuf() { return m_Buf.get(); }
 
-    inline const int GetMaxChunkSize() const { return m_chunkSize; }
+    inline const int32_t GetMaxChunkSize() const { return m_chunkSize; }
 
     bool ParseFromFile();
 
@@ -146,15 +146,15 @@ public:
 private:
     char m_fileName[BP_PAK_FILENAME_SIZE];
 
-    int m_version;
+    int32_t m_version;
 
-    int m_fileCount;
-    int m_patchCount;
+    int32_t m_fileCount;
+    int32_t m_patchCount;
 
     void* m_files;
     bpkpatch_t* m_patches;
 
-    int m_chunkSize;
+    int32_t m_chunkSize;
     std::vector<Chunk_t> m_chunks;
 
     std::shared_ptr<char[]> m_Buf;

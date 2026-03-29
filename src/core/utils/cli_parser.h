@@ -3,7 +3,7 @@
 class CCommandLine
 {
 public:
-	CCommandLine(const int argc, char* argv[]) : argc(argc), argv(argv)
+	CCommandLine(int argc, char* argv[]) : argc(argc), argv(argv)
 	{
 	};
 
@@ -59,14 +59,14 @@ public:
 		return argv[idx];
 	}
 
-	inline const int GetArgC() const
+	inline uint32_t GetArgC() const
 	{
 		return argc;
 	}
 
-	inline const int GetFirstNonFlagArgIdx() const
+	inline uint32_t GetFirstNonFlagArgIdx() const
 	{
-		int i = 1;
+		uint32_t i = 1;
 		// Skip the first argument, as it's always our own executable path
 		for (i = 1; i < argc; ++i)
 		{
