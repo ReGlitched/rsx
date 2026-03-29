@@ -39,26 +39,26 @@ void ExportDependenciesToFileStream_AdjList(std::vector<CGlobalAssetData::AssetL
         const CGlobalAssetData::AssetLookup_t& it = assets->at(i);
 
         // For now this is only usable on rpaks
-        if (it.m_asset->GetAssetContainerType() == CAssetContainer::ContainerType::PAK)
+        if (it.m_asset->GetAssetContainerType() != CAssetContainer::ContainerType::PAK)
+            continue;
+
+        *ofs << it.m_asset->GetAssetName();
+
+        CPakAsset* pakAsset = reinterpret_cast<CPakAsset*>(it.m_asset);
+
+        std::vector<AssetGuid_t> dependencies;
+        pakAsset->getDependencies(dependencies);
+
+        for (size_t depIdx = 0; depIdx < dependencies.size(); ++depIdx)
         {
-            *ofs << it.m_asset->GetAssetName();
+            const AssetGuid_t depGuid = dependencies[depIdx];
 
-            CPakAsset* pakAsset = reinterpret_cast<CPakAsset*>(it.m_asset);
+            CAsset* depAsset = g_assetData.FindAssetByGUID<CPakAsset>(depGuid.guid);
 
-            std::vector<AssetGuid_t> dependencies;
-            pakAsset->getDependencies(dependencies);
-
-            for (size_t depIdx = 0; depIdx < dependencies.size(); ++depIdx)
-            {
-                const AssetGuid_t depGuid = dependencies[depIdx];
-
-                CAsset* depAsset = g_assetData.FindAssetByGUID<CPakAsset>(depGuid.guid);
-
-                if (depAsset)
-                    *ofs << "," << depAsset->GetAssetName();
-                else
-                    *ofs << "," << std::format("{:016X}*", depGuid.guid);
-            }
+            if (depAsset)
+                *ofs << "," << depAsset->GetAssetName();
+            else
+                *ofs << "," << std::format("{:016X}*", depGuid.guid);
         }
 
         if (i != assets->size() - 1)
