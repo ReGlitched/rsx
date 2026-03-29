@@ -51,10 +51,10 @@ struct GridVertex_t
 	float x, y, z;
 	uint32_t _normal_unused;
 	uint32_t color;
-	float tex_u, tex_v;
+	float tex_u, tex_v; // unused
 
 	constexpr GridVertex_t() {};
-	constexpr GridVertex_t(float x, float y, float z, uint32_t color) : x(x), y(y), z(z), _normal_unused(color), color(color) {};
+	constexpr GridVertex_t(float x, float y, float z, uint32_t color) : x(x), y(y), z(z), _normal_unused(color), color(color), tex_u(0.f), tex_v(0.f) {};
 };
 class CShader;
 
