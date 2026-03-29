@@ -34,16 +34,14 @@ void HandleBPKLoad(std::vector<std::string> filePaths)
 
         g_assetData.v_assetContainers.emplace_back(pakfile);
 
-        auto binding = g_assetData.m_assetTypeBindings.find('fwpb');
+        auto binding = g_assetData.m_assetTypeBindings.find(BP_ASSET_TYPE_ID);
         if (binding == g_assetData.m_assetTypeBindings.end())
         {
             assertm(false, "no asset binding for bluepoint files");
             break;
         }
 
-        switch (pakfile->Version())
-        {
-        case BP_PAK_VER_R1:
+        if (pakfile->Version() == BP_PAK_VER_R1)
         {
             bpkfile_v6_t* const files = reinterpret_cast<bpkfile_v6_t* const>(pakfile->Files());
             for (int i = 0; i < pakfile->FileCount(); i++)
@@ -61,14 +59,10 @@ void HandleBPKLoad(std::vector<std::string> filePaths)
 
                 binding->second.loadFunc(pakfile, file);
             }
-
-            break;
         }
-        default:
+        else
         {
-            assertm(false, "invalid version somehow");
-            break;
-        }
+            assertm(0, "Invalid BluePoint pak version");
         }
 
         ++pakfileLoadingProgress;

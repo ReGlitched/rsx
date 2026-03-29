@@ -6,6 +6,8 @@
 
 #define BP_PAK_FILENAME_SIZE 64
 
+constexpr uint32_t BP_ASSET_TYPE_ID = 0x66777062; // "bpwf" - bluepoint wrapped file
+
 struct bpkfile_v6_t
 {
     int hash[2]; // first 8 bytes of the sha1 hash of the filename
